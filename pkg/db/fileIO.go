@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"nosql-db/pkg/datatypes"
+	"nosql-db/pkg/util"
 	"os"
 	"strconv"
 	"strings"
@@ -47,9 +48,9 @@ func getFileContents(f *os.File) string {
 }
 
 func NewAccess(fileName string) *Access {
-	dbFile := openFile(fileName)
-	indexFile := openFile(fileName + ".index")
-	attributesFile := openFile(fileName + ".attr")
+	dbFile := getFile(fileName)
+	indexFile := getFile(fileName + datatypes.IndexFileExtension)
+	attributesFile := getFile(fileName + datatypes.AttributeFileExtension)
 	return &Access{
 		state:          "ready",
 		dbFile:         dbFile,
@@ -59,6 +60,19 @@ func NewAccess(fileName string) *Access {
 		attributesFile: attributesFile,
 		idGen:          NewIdGen(),
 	}
+}
+
+//getFile returns a file in R/W mode. Will create if it does not exist.
+func getFile(filename string) *os.File {
+	if util.FileExists(filename) {
+		return openFile(filename)
+	}
+	file, err := os.Create(filename)
+	if err != nil {
+		log.Fatal(err)
+	}
+	file.Close()
+	return openFile(filename)
 }
 
 func getFilePos(f *os.File) int64 {
@@ -244,7 +258,7 @@ func (db *Access) getFilteredData(query map[string]interface{}) []map[string]int
 	var filteredLists [][]map[string]interface{}
 
 	//Will hold a mapping from attribute name -> list of IDs of objects containing that attribute
-	var attributesIDs map[string][]string
+	attributesIDs := make(map[string][]string)
 
 	//fill above map
 	for k := range query {
@@ -257,6 +271,7 @@ func (db *Access) getFilteredData(query map[string]interface{}) []map[string]int
 }
 
 func (db *Access) applySingleFilter(key string, value interface{}) []map[string]interface{} {
+	log.Printf("Applying filter for key '%s'", key)
 	//List of ids of objects containing attribute `key`
 	ids := db.getAllIdsFromAttributeName(key)
 
@@ -281,6 +296,8 @@ func (db *Access) applySingleFilter(key string, value interface{}) []map[string]
 }
 
 func (db *Access) getAllObjectsFromIds(ids []string) []map[string]interface{} {
+	log.Println(ids)
+	log.Printf("(len = %d)", len(ids)) //len = 2 here
 	objects := make([]map[string]interface{}, len(ids))
 	for i, id := range ids {
 		objects[i] = db.getSingleObjectFromId(id)
@@ -289,11 +306,13 @@ func (db *Access) getAllObjectsFromIds(ids []string) []map[string]interface{} {
 }
 
 func (db *Access) getSingleObjectFromId(id string) map[string]interface{} {
+	log.Printf("looking up object with id = '%s'", id)
 	indexData, err := db.indexTable.Get(id)
 	if err != nil {
 		//TODO we might want to change this to a less dramatic error handler
 		//Looking at the func above, a query for 100IDs (for example) will fail
 		//if a single item is missing. Not good.
+		//UPDATE: lol indeed I just got to that situation.
 		log.Panic(err)
 	}
 	log.Println("Found matching id at offset " + strconv.Itoa(indexData.Offset))
@@ -395,7 +414,7 @@ func (db *Access) findAttributeOffset(attribute string) (int64, string) {
 			}
 			filePos++
 		}
-		return -1, ""
+		//return -1, ""
 	}
 	return -1, ""
 }
@@ -411,10 +430,6 @@ func (db *Access) readSingleAttrItem(offset int64) (int64, string) {
 
 	//split along separator
 	parts := strings.Split(string(data), ":")
-
-	log.Println(data)
-	log.Println(parts)
-	log.Println(len(parts))
 
 	for i := 0; i < len(parts); i++ {
 		log.Printf("%d -> %s", i, parts[i])
@@ -436,7 +451,14 @@ func (db *Access) readSingleAttrItem(offset int64) (int64, string) {
 func (db *Access) getAllIdsFromAttributeName(attrName string) []string {
 	startOffset, id := db.findAttributeOffset(attrName)
 	ids := db.getAllIdsFromAttributeOffset(startOffset)
-	return append(ids, id)
+	log.Printf("Got %d ids, but adding '%s'", len(ids), id)
+	//TODO implement a better fix, one that takes into account what's actually
+	//going on in the code
+	if id == "" {
+		return ids
+	} else {
+		return append(ids, id)
+	}
 }
 
 //Inner function: exposed by two functions below.
@@ -450,12 +472,14 @@ func (db *Access) traverseAttributesLinkedList(startOffset int64, includeIds boo
 		lastOffset = offset
 		log.Println(offset)
 		if includeIds {
+			log.Printf("Found another id '%s'", id)
 			ids = append(ids, id)
 		}
 		offset, id = db.readSingleAttrItem(offset)
 	}
+	log.Printf("Found another id '%s' [exit]", id)
 	ids = append(ids, id)
-	log.Printf("offset = %d, lastOffset = %d", offset, lastOffset)
+	log.Printf("offset = %d, lastOffset = %d, returning %d ids", offset, lastOffset, len(ids))
 	//lastOffset corresponds to the beginning of the entry.
 	//As a result, needs to be shifted by ID_LEN + 1 (separator) + POINTER_SIZE
 	//UPDATE: that did not work...I feel like something in that style is required though

@@ -7,6 +7,12 @@ import (
 	"strings"
 )
 
+//IndexFileExtension is the file extension of the index file
+const IndexFileExtension = ".index"
+
+//AttributeFileExtension is the file extension of the attribute file
+const AttributeFileExtension = ".attr"
+
 //IndexEntrySize is the size in bytes of a single entry in the index file
 const IndexEntrySize = 30
 
