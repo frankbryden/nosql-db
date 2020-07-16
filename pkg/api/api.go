@@ -5,7 +5,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
-	"nosqldb/pkg/db"
+	"nosql-db/pkg/db"
 	"strings"
 )
 

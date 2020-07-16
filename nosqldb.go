@@ -3,8 +3,8 @@ package main
 import (
 	"fmt"
 	"log"
-	"nosqldb/pkg/api"
-	"nosqldb/pkg/db"
+	"nosql-db/pkg/api"
+	"nosql-db/pkg/db"
 )
 
 func main() {

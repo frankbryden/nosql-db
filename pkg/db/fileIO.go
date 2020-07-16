@@ -5,7 +5,7 @@ import (
 	"errors"
 	"io"
 	"log"
-	"nosqldb/pkg/datatypes"
+	"nosql-db/pkg/datatypes"
 	"os"
 	"strconv"
 	"strings"
