@@ -233,9 +233,23 @@ getFilteredData works by applying a
 Filter for each attribute: obtain as many lists as attributes in filter
 Perform inner-join on lists
 That is the final result of the query
+UPDATE: better method, involving less disk-reading = better performance.
+	-> acquire IDs oj objects for each attribute
+	-> then perform inner-join
+	-> Now fetch data based on remaining IDs
+	-> now we can filter on the data with all attributes directly,
+	   as we know each object contains all the requested attributes
 */
 func (db *Access) getFilteredData(query map[string]interface{}) []map[string]interface{} {
 	var filteredLists [][]map[string]interface{}
+
+	//Will hold a mapping from attribute name -> list of IDs of objects containing that attribute
+	var attributesIDs map[string][]string
+
+	//fill above map
+	for k := range query {
+		attributesIDs[k] = db.getAllIdsFromAttributeName(k)
+	}
 	for k, v := range query {
 		filteredLists = append(filteredLists, db.applySingleFilter(k, v))
 	}
