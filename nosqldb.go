@@ -3,8 +3,6 @@ package main
 import (
 	"fmt"
 	"log"
-	"nosql-db/pkg/api"
-	"nosql-db/pkg/db"
 )
 
 func main() {
@@ -26,7 +24,8 @@ func main() {
 	log.SetFlags(log.Lshortfile | log.Ltime)
 
 	fmt.Println("hey there world")
-	dbAcc := db.NewAccess("my.db")
-	s := api.NewServer(dbAcc)
-	s.Start()
+	//dbAcc := db.NewAccess("my.db")
+	//s := api.NewServer(dbAcc)
+	//s.Start()
+
 }
