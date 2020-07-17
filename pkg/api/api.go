@@ -38,7 +38,7 @@ func getBodyStr(resp http.ResponseWriter, r *http.Request) string {
 func (s *Server) WriteReq(resp http.ResponseWriter, r *http.Request) {
 	bodyStr := getBodyStr(resp, r)
 
-	err, id := s.db.Write(bodyStr)
+	id, err := s.db.Write(bodyStr)
 	//var errMsg string
 	errMsg := ""
 	responseBody := make(map[string]string)
@@ -64,9 +64,8 @@ func (s *Server) ReadReq(resp http.ResponseWriter, r *http.Request) {
 
 	objects, err := s.db.Read(bodyStr)
 
-	//var errMsg string
 	errMsg := ""
-	responseBody := make(map[string]interface{})
+
 	if err == nil {
 		/*rawBody, err := json.RawMessage(objects).MarshalJSON()
 		if err != nil {
@@ -77,14 +76,16 @@ func (s *Server) ReadReq(resp http.ResponseWriter, r *http.Request) {
 			log.Println(rawBody)
 			log.Println(string(rawBody))
 		}*/
-		responseBody["objects"] = objects
-
-		if jsonBody, jsonErr := json.Marshal(objects); jsonErr == nil {
+		if len(objects) == 0 {
+			resp.Write([]byte("{}"))
+		} else if jsonBody, jsonErr := json.Marshal(objects); jsonErr == nil {
+			log.Println(objects)
 			log.Println(jsonBody)
 			resp.Write(jsonBody)
 		} else {
 			errMsg = err.Error()
 		}
+
 	} else {
 		errMsg = err.Error()
 	}

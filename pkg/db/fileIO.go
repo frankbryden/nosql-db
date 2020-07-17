@@ -36,6 +36,8 @@ func openFile(fileName string) *os.File {
 func getJson(data string) map[string]interface{} {
 	var dat map[string]interface{}
 	if err := json.Unmarshal([]byte(data), &dat); err != nil {
+		//TODO handle this more graciously. Namely, check if it is a
+		//JSON formatting issue, and return error to user.
 		panic(err)
 	}
 	return dat
@@ -99,6 +101,7 @@ func getFileSize(f *os.File) int {
 	return int(info.Size())
 }
 
+//WriteToFile writes data to the end of the database file
 func (db *Access) WriteToFile(data []byte) int {
 	db.dbFile.Seek(0, 2)
 	n, err := db.dbFile.Write(data)
@@ -109,27 +112,15 @@ func (db *Access) WriteToFile(data []byte) int {
 	return n
 }
 
-func (db *Access) Write(data string) (error, string) {
-	//I guess it makes sense to convert string -> JSON, to write JSON to file
-	//but as file takes string in the end, we'd be doing string -> JSON -> string
-	//so we'll cheat for now and just write the string directly
-	/*var dat map[string]interface{}
-
-	byt := []byte(`{"name":"simon","age":55}`)
-
-
-	fmt.Println(dat)
-	for k, v := range dat {
-		fmt.Print("k " + k + ", v ")
-		fmt.Println(v)
-	}*/
+//Write data to the database. `data` is a raw JSON string
+func (db *Access) Write(data string) (string, error) {
 	dat := getJson(data)
 	entryId := db.idGen.GetId(data)
 	dat["id"] = entryId
 
 	if jsonData, err := json.Marshal(dat); err != nil {
 		log.Fatal(err)
-		return err, ""
+		return "", err
 	} else {
 
 		log.Println("Writing at offset " + strconv.Itoa(db.getDbFilePos()))
@@ -152,9 +143,10 @@ func (db *Access) Write(data string) (error, string) {
 		log.Println("Wrote " + string(jsonData))
 	}
 
-	return nil, entryId
+	return entryId, nil
 }
 
+//WriteIndex takes an IndexEntry and writes it to the index file
 func (db *Access) WriteIndex(ie *datatypes.IndexEntry) {
 	//Write to disk but ALSO to in-memory table
 	db.indexFile.Write(ie.WriteableRepr())
@@ -255,19 +247,64 @@ UPDATE: better method, involving less disk-reading = better performance.
 	   as we know each object contains all the requested attributes
 */
 func (db *Access) getFilteredData(query map[string]interface{}) []map[string]interface{} {
-	var filteredLists [][]map[string]interface{}
+	//In the case of an empty query `{}`, return all objects stored in db
+	if len(query) == 0 {
+		return db.getAllObjects()
+	}
+	//var filteredLists [][]map[string]interface{}
 
 	//Will hold a mapping from attribute name -> list of IDs of objects containing that attribute
-	attributesIDs := make(map[string][]string)
+	//attributesIDs := make(map[string][]string)
+
+	//Array of all IDs which contain at least one of the attributes in query.
+	//Will be narrowed down to only IDs which contain ALL the attributes in query by subsequent inner-join
+	var attributesIDs [][]string
 
 	//fill above map
 	for k := range query {
-		attributesIDs[k] = db.getAllIdsFromAttributeName(k)
+		attributesIDs = append(attributesIDs, db.getAllIdsFromAttributeName(k))
 	}
-	for k, v := range query {
+
+	//Inner-join the map
+	objectIDsWithFilterAttr := util.InnerJoin(attributesIDs)
+	//After the above inner-join, every single object in objectIDsWithFilterAttr (well, the objects
+	//referred to by the IDs) has every single attribute contained in the query
+
+	return db.applyFilter(objectIDsWithFilterAttr, query)
+	/*for k, v := range query {
 		filteredLists = append(filteredLists, db.applySingleFilter(k, v))
 	}
-	return filteredLists[0]
+	return filteredLists[0]*/
+}
+
+//applyFilter gets objects from db based on `ids`, and only keeps objects whose attributes/values match
+//those in `filter`
+func (db *Access) applyFilter(ids []string, filter map[string]interface{}) []map[string]interface{} {
+	//Every item in objects will have at least all the attributes in filter
+	objects := db.getAllObjectsFromIds(ids)
+
+	//TODO may need to rethink this, based on performance cost.
+	//repeatedly appending is heavily inefficient in the worst-case scenario (filter selects all elements)
+	var filteredObjects []map[string]interface{}
+
+	for _, obj := range objects {
+		//keeps track of wether current object matches filter
+		match := true
+
+		for key, value := range filter {
+			if obj[key] != value {
+				match = false
+				break
+			}
+		}
+		if match {
+			filteredObjects = append(filteredObjects, obj)
+			log.Println("MATCH!")
+		}
+
+	}
+	return filteredObjects
+
 }
 
 func (db *Access) applySingleFilter(key string, value interface{}) []map[string]interface{} {
@@ -293,6 +330,10 @@ func (db *Access) applySingleFilter(key string, value interface{}) []map[string]
 		log.Println(value)
 	}
 	return filteredObjects
+}
+
+func (db *Access) getAllObjects() []map[string]interface{} {
+	return db.getAllObjectsFromIds(db.indexTable.GetAllIds())
 }
 
 func (db *Access) getAllObjectsFromIds(ids []string) []map[string]interface{} {
@@ -363,13 +404,14 @@ func (db *Access) findAttributeOffset(attribute string) (int64, string) {
 	// To find all IDs, simply find first instance of attribute, then traverse the singly linked list
 	reachedEnd := false
 	attrRaw := []byte(attribute)
+	chunkSize := 256
 	db.attributesFile.Seek(int64(len(attribute)), 0)
 	for !reachedEnd {
 		//Seek backwards by attribute length. Simple trick to avoid the issue where search item is missed because split
 		//in half where next portion is fetched
 		filePos, _ := db.attributesFile.Seek(-int64(len(attribute)), 1)
 		log.Println("Starting at pos=" + strconv.Itoa(int(filePos)))
-		data := make([]byte, 256)
+		data := make([]byte, chunkSize)
 		n, err := db.attributesFile.Read(data)
 		log.Println("Read " + strconv.Itoa(n) + " bytes")
 		if err != nil {
@@ -415,6 +457,9 @@ func (db *Access) findAttributeOffset(attribute string) (int64, string) {
 			filePos++
 		}
 		//return -1, ""
+		if n < chunkSize {
+			return -1, ""
+		}
 	}
 	return -1, ""
 }

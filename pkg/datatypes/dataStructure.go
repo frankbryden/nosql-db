@@ -122,6 +122,7 @@ func (it *IndexTable) Insert(ie *IndexEntry) {
 	it.table[ie.id] = ie.GetIndexData()
 }
 
+//Get returns an object with `id` representing an item in the index file
 func (it *IndexTable) Get(id string) (IndexData, error) {
 	indexData, found := it.table[id] //db.getOffsetFromId(idStr)
 
@@ -131,5 +132,16 @@ func (it *IndexTable) Get(id string) (IndexData, error) {
 	} else {
 		return indexData, errors.New(id + " not found")
 	}
+}
 
+//GetAllIds returns a list containing every single ID present in the DB
+func (it *IndexTable) GetAllIds() []string {
+	keys := make([]string, len(it.table))
+
+	i := 0
+	for k := range it.table {
+		keys[i] = k
+		i++
+	}
+	return keys
 }
