@@ -80,7 +80,6 @@ func (s *Server) ReadReq(resp http.ResponseWriter, r *http.Request) {
 			resp.Write([]byte("{}"))
 		} else if jsonBody, jsonErr := json.Marshal(objects); jsonErr == nil {
 			log.Println(objects)
-			log.Println(jsonBody)
 			resp.Write(jsonBody)
 		} else {
 			errMsg = err.Error()

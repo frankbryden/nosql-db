@@ -38,6 +38,10 @@ func getJson(data string) map[string]interface{} {
 	if err := json.Unmarshal([]byte(data), &dat); err != nil {
 		//TODO handle this more graciously. Namely, check if it is a
 		//JSON formatting issue, and return error to user.
+		//UPDATE: this will definitely be needed if, when deleting elements from the db,
+		//this is only done in the index file, and not the attribute file. In that case,
+		//lookups in the attribute file will give hits to IDs which no longer exist in the
+		//index file.
 		panic(err)
 	}
 	return dat
@@ -118,6 +122,9 @@ func (db *Access) Write(data string) (string, error) {
 	entryId := db.idGen.GetId(data)
 	dat["id"] = entryId
 
+	flattened := util.FlattenJSON(dat)
+	log.Println(flattened)
+
 	if jsonData, err := json.Marshal(dat); err != nil {
 		log.Fatal(err)
 		return "", err
@@ -135,7 +142,7 @@ func (db *Access) Write(data string) (string, error) {
 		db.WriteIndex(indexEntry)
 
 		//We now need to write to attributes file
-		db.writeAttributes(dat)
+		db.writeAttributes(flattened)
 
 		//Increment the file offset by n (number of bytes written)
 		db.dbFileOffset += n
@@ -157,6 +164,7 @@ func (db *Access) WriteIndex(ie *datatypes.IndexEntry) {
 }
 
 func (db *Access) writeAttributes(data map[string]interface{}) {
+	log.Printf("%s, (%v)", "writeAttributes", data)
 	id := data["id"].(string)
 	delete(data, "id")
 	//get offset of start of attribute chain (if exists)
@@ -191,7 +199,6 @@ func (db *Access) writeAttribute(key string, id string) {
 		//Let's write the item, get its offset, then write the offset at pos=tailOffset
 		tailOffset := db.getAttrListTailOffset(startOffset)
 		if tailOffset < 0 {
-			log.Printf("HEAD is alone, starting at %d", startOffset)
 			//BUG FIX here! the startOffset is right at the beginning of attr entry.
 			//As such, we need to shift by ID + and LLPointerSize (end of offset space)
 			tailOffset = startOffset + datatypes.LinkedListPointerOffset
@@ -208,7 +215,7 @@ func (db *Access) writeAttribute(key string, id string) {
 		//Write offset
 		offsetBytes := []byte(strconv.Itoa(int(currentKeyOffset)))
 		db.attributesFile.WriteAt(offsetBytes, tailOffset-int64(len(offsetBytes))+1)
-		log.Printf("Wrote %d at %d (start = %d, len = %d)", currentKeyOffset, tailOffset, tailOffset-int64(len(offsetBytes))+1, len(offsetBytes))
+		//log.Printf("Wrote %d at %d (start = %d, len = %d)", currentKeyOffset, tailOffset, tailOffset-int64(len(offsetBytes))+1, len(offsetBytes))
 	}
 
 	db.attributesFile.Sync()
@@ -229,7 +236,7 @@ func (db *Access) Read(data string) ([]map[string]interface{}, error) {
 			return []map[string]interface{}{object}, nil
 		}
 	} else {
-		return db.getFilteredData(query), nil
+		return db.getFilteredData(util.FlattenJSON(query)), nil
 	}
 	return []map[string]interface{}{getJson("{\"success\": \"read successful\"}")}, nil
 }
@@ -271,17 +278,16 @@ func (db *Access) getFilteredData(query map[string]interface{}) []map[string]int
 	//referred to by the IDs) has every single attribute contained in the query
 
 	return db.applyFilter(objectIDsWithFilterAttr, query)
-	/*for k, v := range query {
-		filteredLists = append(filteredLists, db.applySingleFilter(k, v))
-	}
-	return filteredLists[0]*/
 }
 
 //applyFilter gets objects from db based on `ids`, and only keeps objects whose attributes/values match
 //those in `filter`
 func (db *Access) applyFilter(ids []string, filter map[string]interface{}) []map[string]interface{} {
+	log.Printf("%s, (%v, %v)", "applyFilter", ids, filter)
 	//Every item in objects will have at least all the attributes in filter
 	objects := db.getAllObjectsFromIds(ids)
+
+	log.Println(objects)
 
 	//TODO may need to rethink this, based on performance cost.
 	//repeatedly appending is heavily inefficient in the worst-case scenario (filter selects all elements)
@@ -291,8 +297,16 @@ func (db *Access) applyFilter(ids []string, filter map[string]interface{}) []map
 		//keeps track of wether current object matches filter
 		match := true
 
+		flattened := util.FlattenJSON(obj)
+
 		for key, value := range filter {
-			if obj[key] != value {
+			//Check wether this is a nested query
+			if strings.Contains(key, ".") {
+				//TODO might be a bit hard, probably some notation or something we can use to do this
+				//but we're gonna have to go through object, where nesting level depends on len(parts).
+				//parts := strings.Split(key, ".")
+			}
+			if flattened[key] != value {
 				match = false
 				break
 			}
@@ -305,31 +319,6 @@ func (db *Access) applyFilter(ids []string, filter map[string]interface{}) []map
 	}
 	return filteredObjects
 
-}
-
-func (db *Access) applySingleFilter(key string, value interface{}) []map[string]interface{} {
-	log.Printf("Applying filter for key '%s'", key)
-	//List of ids of objects containing attribute `key`
-	ids := db.getAllIdsFromAttributeName(key)
-
-	//List of objects which contain attribute `key`
-	objectsWithAttr := db.getAllObjectsFromIds(ids)
-
-	//TODO may need to rethink this, based on performance cost.
-	//repeatedly appending is heavily inefficient in the worst-case scenario (filter selects all elements)
-	var filteredObjects []map[string]interface{}
-
-	for _, obj := range objectsWithAttr {
-		if obj[key] == value {
-			log.Println("MATCH!")
-			filteredObjects = append(filteredObjects, obj)
-		} else {
-			log.Println("No match")
-		}
-		log.Println(obj[key])
-		log.Println(value)
-	}
-	return filteredObjects
 }
 
 func (db *Access) getAllObjects() []map[string]interface{} {
@@ -410,10 +399,8 @@ func (db *Access) findAttributeOffset(attribute string) (int64, string) {
 		//Seek backwards by attribute length. Simple trick to avoid the issue where search item is missed because split
 		//in half where next portion is fetched
 		filePos, _ := db.attributesFile.Seek(-int64(len(attribute)), 1)
-		log.Println("Starting at pos=" + strconv.Itoa(int(filePos)))
 		data := make([]byte, chunkSize)
 		n, err := db.attributesFile.Read(data)
-		log.Println("Read " + strconv.Itoa(n) + " bytes")
 		if err != nil {
 			log.Println(err)
 			reachedEnd = true
@@ -422,8 +409,6 @@ func (db *Access) findAttributeOffset(attribute string) (int64, string) {
 		for i := 0; i < n; i++ {
 			if data[i] == attrRaw[attrIndex] {
 				if attrIndex == len(attrRaw)-1 {
-					log.Println("Found " + attribute + " at pos = " + strconv.Itoa(int(filePos)))
-
 					//We then extract the two pieces of information
 					//as per above, in the format `name:{id}:29`
 
@@ -441,7 +426,6 @@ func (db *Access) findAttributeOffset(attribute string) (int64, string) {
 					//current offset points to the tail of the attr.
 					//call chain can be reduced by a full cycle by avoiding this
 					if offset > 0 {
-						log.Printf("Head has nodes after, starting at offset %d")
 						return offset, id
 					} else {
 						return filePos + 2, "" //filePos + datatypes.IdLength + datatypes.LinkedListPointerSize + 2, ""
@@ -470,22 +454,16 @@ func (db *Access) readSingleAttrItem(offset int64) (int64, string) {
 	data := make([]byte, datatypes.IdLength+datatypes.LinkedListPointerSize+1)
 
 	//skip first separator
-	log.Printf("Reading %d bytes at offset %d", len(data), offset)
 	db.attributesFile.ReadAt(data, offset)
 
 	//split along separator
 	parts := strings.Split(string(data), ":")
-
-	for i := 0; i < len(parts); i++ {
-		log.Printf("%d -> %s", i, parts[i])
-	}
 
 	//extract data
 	id := parts[0]
 	pointer, err := strconv.Atoi(strings.Trim(parts[1], "\x00"))
 
 	if err != nil {
-		log.Println(err)
 		return -1, id
 	}
 
@@ -494,6 +472,7 @@ func (db *Access) readSingleAttrItem(offset int64) (int64, string) {
 
 //getAllIdsFromAttributeName returns all ids of objects containign attrName
 func (db *Access) getAllIdsFromAttributeName(attrName string) []string {
+	log.Printf("%s, (%s)", "getAllIdsFromAttributeName", attrName)
 	startOffset, id := db.findAttributeOffset(attrName)
 	ids := db.getAllIdsFromAttributeOffset(startOffset)
 	log.Printf("Got %d ids, but adding '%s'", len(ids), id)
@@ -515,16 +494,12 @@ func (db *Access) traverseAttributesLinkedList(startOffset int64, includeIds boo
 
 	for offset > 0 {
 		lastOffset = offset
-		log.Println(offset)
 		if includeIds {
-			log.Printf("Found another id '%s'", id)
 			ids = append(ids, id)
 		}
 		offset, id = db.readSingleAttrItem(offset)
 	}
-	log.Printf("Found another id '%s' [exit]", id)
 	ids = append(ids, id)
-	log.Printf("offset = %d, lastOffset = %d, returning %d ids", offset, lastOffset, len(ids))
 	//lastOffset corresponds to the beginning of the entry.
 	//As a result, needs to be shifted by ID_LEN + 1 (separator) + POINTER_SIZE
 	//UPDATE: that did not work...I feel like something in that style is required though
@@ -533,6 +508,7 @@ func (db *Access) traverseAttributesLinkedList(startOffset int64, includeIds boo
 
 //Used for Querying data
 func (db *Access) getAllIdsFromAttributeOffset(startOffset int64) []string {
+	log.Printf("%s, (%d)", "getAllIdsFromAttributeOffset", startOffset)
 	_, ids := db.traverseAttributesLinkedList(startOffset, true)
 	return ids
 }
