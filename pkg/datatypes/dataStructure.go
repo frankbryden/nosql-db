@@ -27,8 +27,9 @@ const LinkedListPointerOffset = IdLength + LinkedListPointerSize
 
 //IndexEntry represents an entry in the index file
 type IndexEntry struct {
-	offset, size int
-	id           string
+	offset int64
+	size   int
+	id     string
 }
 
 //IndexTable is an in-memory copy of the index file
@@ -38,7 +39,8 @@ type IndexTable struct {
 
 //IndexData is the data associated with an IndexEntry
 type IndexData struct {
-	Offset, Size int
+	Offset int64
+	Size   int
 }
 
 //AttributesEntry represents an entry in the attributes file
@@ -52,7 +54,7 @@ func (ie *IndexEntry) WriteableRepr() []byte {
 
 	builder.WriteString(ie.id)
 	builder.WriteString(":")
-	builder.WriteString(strconv.Itoa(ie.offset))
+	builder.WriteString(strconv.Itoa(int(ie.offset)))
 	builder.WriteString(":")
 	builder.WriteString(strconv.Itoa(ie.size))
 
@@ -89,13 +91,13 @@ func FromWriteableRepr(data string) *IndexEntry {
 		log.Fatal("Invalid Data:" + errorMsg)
 	}
 	return &IndexEntry{
-		offset: offset,
+		offset: int64(offset),
 		size:   size,
 		id:     parts[0],
 	}
 }
 
-func NewIndexEntry(offset, size int, id string) *IndexEntry {
+func NewIndexEntry(offset int64, size int, id string) *IndexEntry {
 	return &IndexEntry{
 		offset: offset,
 		size:   size,

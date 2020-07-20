@@ -14,6 +14,9 @@ import (
 
 const dbFile = "mydb.db"
 
+//JS represents a json object in go's primitives
+type JS map[string]interface{}
+
 type Access struct {
 	state          string
 	dbFile         *os.File
@@ -33,8 +36,8 @@ func openFile(fileName string) *os.File {
 	return file
 }
 
-func getJson(data string) map[string]interface{} {
-	var dat map[string]interface{}
+func getJson(data string) JS {
+	var dat JS
 	if err := json.Unmarshal([]byte(data), &dat); err != nil {
 		//TODO handle this more graciously. Namely, check if it is a
 		//JSON formatting issue, and return error to user.
@@ -136,7 +139,7 @@ func (db *Access) Write(data string) (string, error) {
 		log.Println("Wrote " + strconv.Itoa(n) + " bytes")
 
 		//Store information about entry. Will write this to the index file
-		indexEntry := datatypes.NewIndexEntry(db.getDbFilePos()-n, n, entryId)
+		indexEntry := datatypes.NewIndexEntry(int64(db.getDbFilePos()-n), n, entryId)
 
 		//Write to index file
 		db.WriteIndex(indexEntry)
@@ -163,7 +166,19 @@ func (db *Access) WriteIndex(ie *datatypes.IndexEntry) {
 	db.indexTable.Insert(ie)
 }
 
-func (db *Access) writeAttributes(data map[string]interface{}) {
+//DeleteIndex takes an IndexEntry and deletes it from the index file
+func (db *Access) DeleteIndex(ie *datatypes.IndexEntry) {
+	//Write to disk but ALSO to in-memory table
+	indexData := ie.GetIndexData()
+	db.indexFile.Seek(indexData.Offset, 0)
+	db.indexFile.Write(ie.WriteableRepr())
+	db.indexFile.Sync()
+
+	//in-memory table
+	db.indexTable.Insert(ie)
+}
+
+func (db *Access) writeAttributes(data JS) {
 	log.Printf("%s, (%v)", "writeAttributes", data)
 	id := data["id"].(string)
 	delete(data, "id")
@@ -222,23 +237,47 @@ func (db *Access) writeAttribute(key string, id string) {
 
 }
 
-func (db *Access) Read(data string) ([]map[string]interface{}, error) {
+//Read from the database, filtering the data based on `data`
+func (db *Access) Read(data string) ([]JS, error) {
 	if len(data) == 0 {
 		err := errors.New("Empty request")
 		return nil, err
 	}
 	query := getJson(data)
 
+	return db.retrieveFromQuery(query)
+}
+
+//Update all entries from the database which match the filter in `data`
+func (db *Access) Update(data string) JS {
+	js := make(JS)
+	return js
+}
+
+//Delete all entries matching the filter in `data`
+func (db *Access) Delete(data string) (JS, error) {
+	if len(data) == 0 {
+		err := errors.New("Empty request")
+		return nil, err
+	}
+	query := getJson(data)
+
+	toDelete, err := db.retrieveFromQuery(query)
+
+}
+
+func (db *Access) retrieveFromQuery(query JS) ([]JS, error) {
 	if id, ok := query["id"]; ok {
 		if idStr, ok := id.(string); ok {
 			log.Println("query for id " + idStr)
 			object := db.getSingleObjectFromId(idStr)
-			return []map[string]interface{}{object}, nil
+			return []JS{object}, nil
 		}
 	} else {
 		return db.getFilteredData(util.FlattenJSON(query)), nil
 	}
-	return []map[string]interface{}{getJson("{\"success\": \"read successful\"}")}, nil
+
+	return []JS{"Yeah": "hey"}, nil
 }
 
 /*
@@ -253,12 +292,12 @@ UPDATE: better method, involving less disk-reading = better performance.
 	-> now we can filter on the data with all attributes directly,
 	   as we know each object contains all the requested attributes
 */
-func (db *Access) getFilteredData(query map[string]interface{}) []map[string]interface{} {
+func (db *Access) getFilteredData(query JS) []JS {
 	//In the case of an empty query `{}`, return all objects stored in db
 	if len(query) == 0 {
 		return db.getAllObjects()
 	}
-	//var filteredLists [][]map[string]interface{}
+	//var filteredLists [][]JS
 
 	//Will hold a mapping from attribute name -> list of IDs of objects containing that attribute
 	//attributesIDs := make(map[string][]string)
@@ -282,7 +321,7 @@ func (db *Access) getFilteredData(query map[string]interface{}) []map[string]int
 
 //applyFilter gets objects from db based on `ids`, and only keeps objects whose attributes/values match
 //those in `filter`
-func (db *Access) applyFilter(ids []string, filter map[string]interface{}) []map[string]interface{} {
+func (db *Access) applyFilter(ids []string, filter JS) []JS {
 	log.Printf("%s, (%v, %v)", "applyFilter", ids, filter)
 	//Every item in objects will have at least all the attributes in filter
 	objects := db.getAllObjectsFromIds(ids)
@@ -291,12 +330,16 @@ func (db *Access) applyFilter(ids []string, filter map[string]interface{}) []map
 
 	//TODO may need to rethink this, based on performance cost.
 	//repeatedly appending is heavily inefficient in the worst-case scenario (filter selects all elements)
-	var filteredObjects []map[string]interface{}
+	var filteredObjects []JS
 
 	for _, obj := range objects {
 		//keeps track of wether current object matches filter
 		match := true
 
+		//TODO Using flattened is a neat hack which meant the Read aspect of nested-objects
+		//was super easy to implement, but it will make updating impossible.
+		//Updating will require traversal of the original object, so might as well use that here
+		//and write the function now.
 		flattened := util.FlattenJSON(obj)
 
 		for key, value := range filter {
@@ -321,21 +364,21 @@ func (db *Access) applyFilter(ids []string, filter map[string]interface{}) []map
 
 }
 
-func (db *Access) getAllObjects() []map[string]interface{} {
+func (db *Access) getAllObjects() []JS {
 	return db.getAllObjectsFromIds(db.indexTable.GetAllIds())
 }
 
-func (db *Access) getAllObjectsFromIds(ids []string) []map[string]interface{} {
+func (db *Access) getAllObjectsFromIds(ids []string) []JS {
 	log.Println(ids)
 	log.Printf("(len = %d)", len(ids)) //len = 2 here
-	objects := make([]map[string]interface{}, len(ids))
+	objects := make([]JS, len(ids))
 	for i, id := range ids {
 		objects[i] = db.getSingleObjectFromId(id)
 	}
 	return objects
 }
 
-func (db *Access) getSingleObjectFromId(id string) map[string]interface{} {
+func (db *Access) getSingleObjectFromId(id string) JS {
 	log.Printf("looking up object with id = '%s'", id)
 	indexData, err := db.indexTable.Get(id)
 	if err != nil {
@@ -523,4 +566,9 @@ func (db *Access) readDbData(indexData *datatypes.IndexData) string {
 	data := make([]byte, indexData.Size)
 	db.dbFile.ReadAt(data, int64(indexData.Offset))
 	return string(data)
+}
+
+//TODO return a bool with success
+func (db *Access) deleteSingleItemFromId(id string) {
+
 }
