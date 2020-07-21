@@ -277,7 +277,7 @@ func (db *Access) retrieveFromQuery(query JS) ([]JS, error) {
 		return db.getFilteredData(util.FlattenJSON(query)), nil
 	}
 
-	return []JS{"Yeah": "hey"}, nil
+	return []JS{JS{"Yeah": "hey"}}, nil
 }
 
 /*
@@ -388,7 +388,7 @@ func (db *Access) getSingleObjectFromId(id string) JS {
 		//UPDATE: lol indeed I just got to that situation.
 		log.Panic(err)
 	}
-	log.Println("Found matching id at offset " + strconv.Itoa(indexData.Offset))
+	log.Println("Found matching id at offset " + strconv.Itoa(int(indexData.Offset)))
 	dbData := db.readDbData(&indexData)
 	return getJson(dbData)
 }
