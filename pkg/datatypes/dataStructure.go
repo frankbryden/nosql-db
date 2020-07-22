@@ -49,6 +49,7 @@ type AttributesEntry struct {
 	ids  []string
 }
 
+//WriteableRepr is a representation of an index entry as found in the index file
 func (ie *IndexEntry) WriteableRepr() []byte {
 	var builder strings.Builder
 
@@ -120,8 +121,14 @@ func LoadTable(data string) *IndexTable {
 	}
 }
 
+//Insert entry into index table
 func (it *IndexTable) Insert(ie *IndexEntry) {
 	it.table[ie.id] = ie.GetIndexData()
+}
+
+//Remove entry from index table
+func (it *IndexTable) Remove(id string) {
+	delete(it.table, id)
 }
 
 //Get returns an object with `id` representing an item in the index file

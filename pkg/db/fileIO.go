@@ -167,15 +167,18 @@ func (db *Access) WriteIndex(ie *datatypes.IndexEntry) {
 }
 
 //DeleteIndex takes an IndexEntry and deletes it from the index file
-func (db *Access) DeleteIndex(ie *datatypes.IndexEntry) {
-	//Write to disk but ALSO to in-memory table
-	indexData := ie.GetIndexData()
+func (db *Access) DeleteIndex(id string) {
+	//Delete from disk but ALSO from in-memory table
+	indexData, err := db.indexTable.Get(id)
+	if err != nil {
+		log.Fatal("Attempting to delete object with id " + id + " not in database")
+	}
 	db.indexFile.Seek(indexData.Offset, 0)
-	db.indexFile.Write(ie.WriteableRepr())
+	db.indexFile.Write(make([]byte, datatypes.IndexEntrySize))
 	db.indexFile.Sync()
 
 	//in-memory table
-	db.indexTable.Insert(ie)
+	db.indexTable.Remove(id)
 }
 
 func (db *Access) writeAttributes(data JS) {
@@ -264,6 +267,17 @@ func (db *Access) Delete(data string) (JS, error) {
 
 	toDelete, err := db.retrieveFromQuery(query)
 
+	if err != nil {
+		return nil, err
+	}
+
+	for _, item := range toDelete {
+		db.DeleteIndex(item["id"].(string))
+	}
+
+	result := make(JS)
+	result["deleteCount"] = len(toDelete)
+	return result, nil
 }
 
 func (db *Access) retrieveFromQuery(query JS) ([]JS, error) {

@@ -94,6 +94,40 @@ func (s *Server) ReadReq(resp http.ResponseWriter, r *http.Request) {
 	}
 }
 
+//DeleteReq serves requests on the delete endpoint/resource
+func (s *Server) DeleteReq(resp http.ResponseWriter, r *http.Request) {
+	bodyStr := getBodyStr(resp, r)
+
+	result, err := s.db.Delete(bodyStr)
+
+	errMsg := ""
+
+	if err == nil {
+		/*rawBody, err := json.RawMessage(objects).MarshalJSON()
+		if err != nil {
+			errMsg = err.Error()
+		} else {
+			responseBody["objects"] = string(rawBody)
+			log.Println("Raw Body followed by the string() version")
+			log.Println(rawBody)
+			log.Println(string(rawBody))
+		}*/
+		if jsonBody, jsonErr := json.Marshal(result); jsonErr == nil {
+			log.Println(result)
+			resp.Write(jsonBody)
+		} else {
+			errMsg = err.Error()
+		}
+
+	} else {
+		errMsg = err.Error()
+	}
+
+	if errMsg != "" {
+		resp.Write([]byte("{\"error\":\"" + errMsg + "\"}"))
+	}
+}
+
 func (s *Server) ServeHTTP(resp http.ResponseWriter, r *http.Request) {
 	// Immediate solution, not the prettiest:
 	// 1. Split incoming path by /
@@ -117,6 +151,9 @@ func (s *Server) ServeHTTP(resp http.ResponseWriter, r *http.Request) {
 		break
 	case "read":
 		s.ReadReq(resp, r)
+		break
+	case "delete":
+		s.DeleteReq(resp, r)
 		break
 	default:
 		log.Printf("'%s' did not match any path", split[0])
