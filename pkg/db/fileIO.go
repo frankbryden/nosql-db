@@ -173,6 +173,8 @@ func (db *Access) DeleteIndex(id string) {
 	if err != nil {
 		log.Fatal("Attempting to delete object with id " + id + " not in database")
 	}
+	tape := make([]byte, datatypes.IndexEntrySize)
+	log.Printf("Writing %d bytes at offset %d", len(tape), indexData.Offset)
 	db.indexFile.Seek(indexData.Offset, 0)
 	db.indexFile.Write(make([]byte, datatypes.IndexEntrySize))
 	db.indexFile.Sync()
