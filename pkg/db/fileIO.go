@@ -17,6 +17,7 @@ const dbFile = "mydb.db"
 //JS represents a json object in go's primitives
 type JS map[string]interface{}
 
+//Access the underlying db with common CRUD operations
 type Access struct {
 	state          string
 	dbFile         *os.File
@@ -36,7 +37,8 @@ func openFile(fileName string) *os.File {
 	return file
 }
 
-func getJson(data string) JS {
+//getJSON object from string
+func getJSON(data string) JS {
 	var dat JS
 	if err := json.Unmarshal([]byte(data), &dat); err != nil {
 		//TODO handle this more graciously. Namely, check if it is a
@@ -56,6 +58,7 @@ func getFileContents(f *os.File) string {
 	return string(fileContents)
 }
 
+//NewAccess constructs an Access instance from a db name
 func NewAccess(fileName string) *Access {
 	dbFile := getFile(fileName)
 	indexFile := getFile(fileName + datatypes.IndexFileExtension)
@@ -121,7 +124,7 @@ func (db *Access) WriteToFile(data []byte) int {
 
 //Write data to the database. `data` is a raw JSON string
 func (db *Access) Write(data string) (string, error) {
-	dat := getJson(data)
+	dat := getJSON(data)
 	entryId := db.idGen.GetId(data)
 	dat["id"] = entryId
 
@@ -139,7 +142,7 @@ func (db *Access) Write(data string) (string, error) {
 		log.Println("Wrote " + strconv.Itoa(n) + " bytes")
 
 		//Store information about entry. Will write this to the index file
-		indexEntry := datatypes.NewIndexEntry(int64(db.getDbFilePos()-n), n, entryId)
+		indexEntry := datatypes.NewIndexEntry(int64(db.getDbFilePos()-n), -1, n, entryId)
 
 		//Write to index file
 		db.WriteIndex(indexEntry)
@@ -157,13 +160,22 @@ func (db *Access) Write(data string) (string, error) {
 }
 
 //WriteIndex takes an IndexEntry and writes it to the index file
-func (db *Access) WriteIndex(ie *datatypes.IndexEntry) {
+//returns offset of write start
+func (db *Access) WriteIndex(ie *datatypes.IndexEntry) int64 {
+	//Get write start (value to be returned)
+	offset, _ := db.indexFile.Seek(0, 2)
+
 	//Write to disk but ALSO to in-memory table
 	db.indexFile.Write(ie.WriteableRepr())
 	db.indexFile.Sync()
 
+	//Update indexEntry object with obtained offset
+	ie.SetIndexFileOffset(offset)
+
 	//in-memory table
 	db.indexTable.Insert(ie)
+
+	return offset
 }
 
 //DeleteIndex takes an IndexEntry and deletes it from the index file
@@ -174,8 +186,8 @@ func (db *Access) DeleteIndex(id string) {
 		log.Fatal("Attempting to delete object with id " + id + " not in database")
 	}
 	tape := make([]byte, datatypes.IndexEntrySize)
-	log.Printf("Writing %d bytes at offset %d", len(tape), indexData.Offset)
-	db.indexFile.Seek(indexData.Offset, 0)
+	log.Printf("Writing %d bytes at offset %d", len(tape), indexData.IndexFileOffset)
+	db.indexFile.Seek(indexData.IndexFileOffset, 0)
 	db.indexFile.Write(make([]byte, datatypes.IndexEntrySize))
 	db.indexFile.Sync()
 
@@ -248,7 +260,7 @@ func (db *Access) Read(data string) ([]JS, error) {
 		err := errors.New("Empty request")
 		return nil, err
 	}
-	query := getJson(data)
+	query := getJSON(data)
 
 	return db.retrieveFromQuery(query)
 }
@@ -265,7 +277,7 @@ func (db *Access) Delete(data string) (JS, error) {
 		err := errors.New("Empty request")
 		return nil, err
 	}
-	query := getJson(data)
+	query := getJSON(data)
 
 	toDelete, err := db.retrieveFromQuery(query)
 
@@ -286,7 +298,12 @@ func (db *Access) retrieveFromQuery(query JS) ([]JS, error) {
 	if id, ok := query["id"]; ok {
 		if idStr, ok := id.(string); ok {
 			log.Println("query for id " + idStr)
-			object := db.getSingleObjectFromId(idStr)
+			jsObj, err := db.getSingleObjectFromId(idStr)
+			if err != nil {
+				//obj no longer exists
+				return nil, errors.New("Object deleted")
+			}
+			object := jsObj
 			return []JS{object}, nil
 		}
 	} else {
@@ -389,12 +406,18 @@ func (db *Access) getAllObjectsFromIds(ids []string) []JS {
 	log.Printf("(len = %d)", len(ids)) //len = 2 here
 	objects := make([]JS, len(ids))
 	for i, id := range ids {
-		objects[i] = db.getSingleObjectFromId(id)
+		jsObj, err := db.getSingleObjectFromId(id)
+		if err != nil {
+			//obj no longer exists
+			continue
+		}
+		objects[i] = jsObj
 	}
 	return objects
 }
 
-func (db *Access) getSingleObjectFromId(id string) JS {
+//getSingleObjectFromId returns JS instance from db given `id`
+func (db *Access) getSingleObjectFromId(id string) (JS, error) {
 	log.Printf("looking up object with id = '%s'", id)
 	indexData, err := db.indexTable.Get(id)
 	if err != nil {
@@ -402,11 +425,12 @@ func (db *Access) getSingleObjectFromId(id string) JS {
 		//Looking at the func above, a query for 100IDs (for example) will fail
 		//if a single item is missing. Not good.
 		//UPDATE: lol indeed I just got to that situation.
-		log.Panic(err)
+		//UPDATE: okkk deletion implemented, time to fix this.
+		return nil, errors.New("Object deleted or non-existent")
 	}
 	log.Println("Found matching id at offset " + strconv.Itoa(int(indexData.Offset)))
 	dbData := db.readDbData(&indexData)
-	return getJson(dbData)
+	return getJSON(dbData), nil
 }
 
 func (db *Access) getOffsetFromId(id string) int {

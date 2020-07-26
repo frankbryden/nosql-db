@@ -22,7 +22,7 @@ func (ig *IdGen) GetId(data string) string {
 	ig.h.Reset()
 	io.WriteString(ig.h, data)
 	dataHash := ig.h.Sum(nil)
-	timestamp := time.Now().UnixNano()
+	timestamp := time.Now().UnixNano() / 100
 
 	strTimestamp := fmt.Sprintf("%d", timestamp)
 	strHash := fmt.Sprintf("%x", dataHash)

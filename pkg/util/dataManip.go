@@ -1,7 +1,6 @@
 package util
 
 import (
-	"log"
 	"reflect"
 )
 
@@ -62,7 +61,6 @@ func InnerJoin(data [][]string) []string {
 // }
 func FlattenJSON(data map[string]interface{}) map[string]interface{} {
 	result := make(map[string]interface{})
-	log.Printf("Flatten JSON with %v", data)
 	for k, v := range data {
 		if IsJSONObj(k, data) {
 			flattened := flattenRec(k, v.(map[string]interface{}))

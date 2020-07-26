@@ -27,9 +27,11 @@ const LinkedListPointerOffset = IdLength + LinkedListPointerSize
 
 //IndexEntry represents an entry in the index file
 type IndexEntry struct {
-	offset int64
-	size   int
-	id     string
+	//offset is in the db file, whereas indexFileOffset is in the index file
+	offset          int64
+	indexFileOffset int64
+	size            int
+	id              string
 }
 
 //IndexTable is an in-memory copy of the index file
@@ -39,8 +41,8 @@ type IndexTable struct {
 
 //IndexData is the data associated with an IndexEntry
 type IndexData struct {
-	Offset int64
-	Size   int
+	Offset, IndexFileOffset int64
+	Size                    int
 }
 
 //AttributesEntry represents an entry in the attributes file
@@ -72,13 +74,20 @@ func (ie *IndexEntry) WriteableRepr() []byte {
 
 func (ie *IndexEntry) GetIndexData() IndexData {
 	return IndexData{
-		Offset: ie.offset,
-		Size:   ie.size,
+		Offset:          ie.offset,
+		IndexFileOffset: ie.indexFileOffset,
+		Size:            ie.size,
 	}
 }
 
-func FromWriteableRepr(data string) *IndexEntry {
+//FromWriteableRepr constructs an IndexEntry instance from a segment of the index file.
+//returns an error if non-nil error if segment is empty (null bytes)
+func FromWriteableRepr(data string, indexFileOffset int64) (*IndexEntry, error) {
 	parts := strings.Split(data, ":")
+	//If the current segment is empty (previously deleted index entry)
+	if len(parts) == 1 {
+		return nil, errors.New("Empty index entry")
+	}
 	offset, offsetErr := strconv.Atoi(parts[1])
 	//Trailing zeroes (used for padding) need to be removed
 	size, sizeErr := strconv.Atoi(strings.Trim(parts[2][:len(parts[2])-1], "\x00"))
@@ -92,27 +101,43 @@ func FromWriteableRepr(data string) *IndexEntry {
 		log.Fatal("Invalid Data:" + errorMsg)
 	}
 	return &IndexEntry{
-		offset: int64(offset),
-		size:   size,
-		id:     parts[0],
-	}
+		offset:          int64(offset),
+		indexFileOffset: indexFileOffset,
+		size:            size,
+		id:              parts[0],
+	}, nil
 }
 
-func NewIndexEntry(offset int64, size int, id string) *IndexEntry {
+//NewIndexEntry constructs an IndexEntry object from required parameters.
+func NewIndexEntry(offset int64, indexFileOffset int64, size int, id string) *IndexEntry {
 	return &IndexEntry{
-		offset: offset,
-		size:   size,
-		id:     id,
+		offset:          offset,
+		indexFileOffset: indexFileOffset,
+		size:            size,
+		id:              id,
 	}
 }
 
+//SetIndexFileOffset used by function writing to index file, as IndexEntry object is
+//created before the file offset is known
+func (ie *IndexEntry) SetIndexFileOffset(indexFileOffset int64) {
+	log.Printf("Setting indexFileOffset of object with id %s to %d", ie.id, indexFileOffset)
+	ie.indexFileOffset = indexFileOffset
+}
+
+//LoadTable from index file contents
 func LoadTable(data string) *IndexTable {
 	table := make(map[string]IndexData)
 	for i := 0; i < len(data); i += IndexEntrySize {
 		//Get raw data in the form: 3b0d2e8c691600:2064:48;
 		rawData := data[i : i+IndexEntrySize]
 		//Pass to parser and obtain IndexEntry object
-		ie := FromWriteableRepr(rawData)
+		ie, err := FromWriteableRepr(rawData, int64(i))
+
+		if err != nil {
+			//this segment is empty, skip
+			continue
+		}
 		//Insert into map
 		table[ie.id] = ie.GetIndexData()
 	}
