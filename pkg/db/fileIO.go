@@ -19,13 +19,17 @@ type JS map[string]interface{}
 
 //Access the underlying db with common CRUD operations
 type Access struct {
-	state          string
+	state       string
+	fileHandles *FileHandles
+	indexTable  *datatypes.IndexTable
+	idGen       *IdGen
+}
+
+//FileHandles to underlying database files
+type FileHandles struct {
 	dbFile         *os.File
-	dbFileOffset   int
 	indexFile      *os.File
-	indexTable     *datatypes.IndexTable
 	attributesFile *os.File
-	idGen          *IdGen
 }
 
 func openFile(fileName string) *os.File {
@@ -59,18 +63,25 @@ func getFileContents(f *os.File) string {
 }
 
 //NewAccess constructs an Access instance from a db name
-func NewAccess(fileName string) *Access {
-	dbFile := getFile(fileName)
-	indexFile := getFile(fileName + datatypes.IndexFileExtension)
-	attributesFile := getFile(fileName + datatypes.AttributeFileExtension)
+func NewAccess(dbName string) *Access {
+	fileHandles := NewFileHandles(dbName)
 	return &Access{
-		state:          "ready",
+		state:       "ready",
+		fileHandles: fileHandles,
+		indexTable:  datatypes.LoadTable(getFileContents(fileHandles.indexFile)),
+		idGen:       NewIdGen(),
+	}
+}
+
+//NewFileHandles constructs a FileHandles instance from a db name
+func NewFileHandles(dbName string) *FileHandles {
+	dbFile := getFile(dbName)
+	indexFile := getFile(dbName + datatypes.IndexFileExtension)
+	attributesFile := getFile(dbName + datatypes.AttributeFileExtension)
+	return &FileHandles{
 		dbFile:         dbFile,
-		dbFileOffset:   getFileSize(dbFile),
 		indexFile:      indexFile,
-		indexTable:     datatypes.LoadTable(getFileContents(indexFile)),
 		attributesFile: attributesFile,
-		idGen:          NewIdGen(),
 	}
 }
 
@@ -96,7 +107,7 @@ func getFilePos(f *os.File) int64 {
 }
 
 func (db *Access) getDbFilePos() int {
-	offset, err := db.dbFile.Seek(0, io.SeekCurrent)
+	offset, err := db.fileHandles.dbFile.Seek(0, io.SeekCurrent)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -113,20 +124,20 @@ func getFileSize(f *os.File) int {
 
 //WriteToFile writes data to the end of the database file
 func (db *Access) WriteToFile(data []byte) int {
-	db.dbFile.Seek(0, 2)
-	n, err := db.dbFile.Write(data)
+	db.fileHandles.dbFile.Seek(0, 2)
+	n, err := db.fileHandles.dbFile.Write(data)
 	if err != nil {
 		log.Fatal(err)
 	}
-	db.dbFile.Sync()
+	db.fileHandles.dbFile.Sync()
 	return n
 }
 
 //Write data to the database. `data` is a raw JSON string
 func (db *Access) Write(data string) (string, error) {
 	dat := getJSON(data)
-	entryId := db.idGen.GetId(data)
-	dat["id"] = entryId
+	entryID := db.idGen.GetID(data)
+	dat["id"] = entryID
 
 	flattened := util.FlattenJSON(dat)
 	log.Println(flattened)
@@ -142,7 +153,7 @@ func (db *Access) Write(data string) (string, error) {
 		log.Println("Wrote " + strconv.Itoa(n) + " bytes")
 
 		//Store information about entry. Will write this to the index file
-		indexEntry := datatypes.NewIndexEntry(int64(db.getDbFilePos()-n), -1, n, entryId)
+		indexEntry := datatypes.NewIndexEntry(int64(db.getDbFilePos()-n), -1, n, entryID)
 
 		//Write to index file
 		db.WriteIndex(indexEntry)
@@ -150,24 +161,21 @@ func (db *Access) Write(data string) (string, error) {
 		//We now need to write to attributes file
 		db.writeAttributes(flattened)
 
-		//Increment the file offset by n (number of bytes written)
-		db.dbFileOffset += n
-
 		log.Println("Wrote " + string(jsonData))
 	}
 
-	return entryId, nil
+	return entryID, nil
 }
 
 //WriteIndex takes an IndexEntry and writes it to the index file
 //returns offset of write start
 func (db *Access) WriteIndex(ie *datatypes.IndexEntry) int64 {
 	//Get write start (value to be returned)
-	offset, _ := db.indexFile.Seek(0, 2)
+	offset, _ := db.fileHandles.indexFile.Seek(0, 2)
 
 	//Write to disk but ALSO to in-memory table
-	db.indexFile.Write(ie.WriteableRepr())
-	db.indexFile.Sync()
+	db.fileHandles.indexFile.Write(ie.WriteableRepr())
+	db.fileHandles.indexFile.Sync()
 
 	//Update indexEntry object with obtained offset
 	ie.SetIndexFileOffset(offset)
@@ -187,9 +195,9 @@ func (db *Access) DeleteIndex(id string) {
 	}
 	tape := make([]byte, datatypes.IndexEntrySize)
 	log.Printf("Writing %d bytes at offset %d", len(tape), indexData.IndexFileOffset)
-	db.indexFile.Seek(indexData.IndexFileOffset, 0)
-	db.indexFile.Write(make([]byte, datatypes.IndexEntrySize))
-	db.indexFile.Sync()
+	db.fileHandles.indexFile.Seek(indexData.IndexFileOffset, 0)
+	db.fileHandles.indexFile.Write(make([]byte, datatypes.IndexEntrySize))
+	db.fileHandles.indexFile.Sync()
 
 	//in-memory table
 	db.indexTable.Remove(id)
@@ -217,10 +225,10 @@ func (db *Access) writeAttribute(key string, id string) {
 	if startOffset < 0 {
 		log.Println(key + " not found. Writing HEAD...")
 		//Write key:ID:\0\0\0\0
-		offset, _ := db.attributesFile.Seek(0, 2)
-		db.attributesFile.WriteString(key + ":" + id + ":")
-		db.attributesFile.Write(zeroes)
-		endOffset, _ := db.attributesFile.Seek(0, 1)
+		offset, _ := db.fileHandles.attributesFile.Seek(0, 2)
+		db.fileHandles.attributesFile.WriteString(key + ":" + id + ":")
+		db.fileHandles.attributesFile.Write(zeroes)
+		endOffset, _ := db.fileHandles.attributesFile.Seek(0, 1)
 		log.Printf("Wrote from byte %d to byte %d", offset, endOffset)
 		log.Println("Wrote " + key)
 	} else {
@@ -239,18 +247,18 @@ func (db *Access) writeAttribute(key string, id string) {
 		}
 
 		//Write ID:\0\0\0\0
-		db.attributesFile.Seek(0, 2)
-		currentKeyOffset := getFilePos(db.attributesFile)
-		db.attributesFile.WriteString(id + ":")
-		db.attributesFile.Write(zeroes)
+		db.fileHandles.attributesFile.Seek(0, 2)
+		currentKeyOffset := getFilePos(db.fileHandles.attributesFile)
+		db.fileHandles.attributesFile.WriteString(id + ":")
+		db.fileHandles.attributesFile.Write(zeroes)
 
 		//Write offset
 		offsetBytes := []byte(strconv.Itoa(int(currentKeyOffset)))
-		db.attributesFile.WriteAt(offsetBytes, tailOffset-int64(len(offsetBytes))+1)
+		db.fileHandles.attributesFile.WriteAt(offsetBytes, tailOffset-int64(len(offsetBytes))+1)
 		//log.Printf("Wrote %d at %d (start = %d, len = %d)", currentKeyOffset, tailOffset, tailOffset-int64(len(offsetBytes))+1, len(offsetBytes))
 	}
 
-	db.attributesFile.Sync()
+	db.fileHandles.attributesFile.Sync()
 
 }
 
@@ -298,7 +306,7 @@ func (db *Access) retrieveFromQuery(query JS) ([]JS, error) {
 	if id, ok := query["id"]; ok {
 		if idStr, ok := id.(string); ok {
 			log.Println("query for id " + idStr)
-			jsObj, err := db.getSingleObjectFromId(idStr)
+			jsObj, err := db.getSingleObjectFromID(idStr)
 			if err != nil {
 				//obj no longer exists
 				return nil, errors.New("Object deleted")
@@ -406,7 +414,7 @@ func (db *Access) getAllObjectsFromIds(ids []string) []JS {
 	log.Printf("(len = %d)", len(ids)) //len = 2 here
 	objects := make([]JS, len(ids))
 	for i, id := range ids {
-		jsObj, err := db.getSingleObjectFromId(id)
+		jsObj, err := db.getSingleObjectFromID(id)
 		if err != nil {
 			//obj no longer exists
 			continue
@@ -416,8 +424,8 @@ func (db *Access) getAllObjectsFromIds(ids []string) []JS {
 	return objects
 }
 
-//getSingleObjectFromId returns JS instance from db given `id`
-func (db *Access) getSingleObjectFromId(id string) (JS, error) {
+//getSingleObjectFromID returns JS instance from db given `id`
+func (db *Access) getSingleObjectFromID(id string) (JS, error) {
 	log.Printf("looking up object with id = '%s'", id)
 	indexData, err := db.indexTable.Get(id)
 	if err != nil {
@@ -433,27 +441,12 @@ func (db *Access) getSingleObjectFromId(id string) (JS, error) {
 	return getJSON(dbData), nil
 }
 
-func (db *Access) getOffsetFromId(id string) int {
-	endPos := getFileSize(db.indexFile)
-	defer db.indexFile.Seek(0, endPos)
-
-	//Start from beginning
-	db.indexFile.Seek(0, 0)
-
-	currentId := ""
-	for currentId != id {
-		currentId = db.getNextIdFromIndexFile()
-		break
-	}
-	return 150
-}
-
 func (db *Access) getNextIdFromIndexFile() string {
 	//Loop over the file, skipping by EntryIndexSize bytes every time,
 	//and looking at the first IdLength bytes (to compare IDs)
 
-	data := make([]byte, getFileSize(db.indexFile))
-	db.indexFile.Read(data)
+	data := make([]byte, getFileSize(db.fileHandles.indexFile))
+	db.fileHandles.indexFile.Read(data)
 	curIndex := 0
 	//startIndex := 0
 	for rune(data[curIndex]) != ';' {
@@ -477,13 +470,13 @@ func (db *Access) findAttributeOffset(attribute string) (int64, string) {
 	reachedEnd := false
 	attrRaw := []byte(attribute)
 	chunkSize := 256
-	db.attributesFile.Seek(int64(len(attribute)), 0)
+	db.fileHandles.attributesFile.Seek(int64(len(attribute)), 0)
 	for !reachedEnd {
 		//Seek backwards by attribute length. Simple trick to avoid the issue where search item is missed because split
 		//in half where next portion is fetched
-		filePos, _ := db.attributesFile.Seek(-int64(len(attribute)), 1)
+		filePos, _ := db.fileHandles.attributesFile.Seek(-int64(len(attribute)), 1)
 		data := make([]byte, chunkSize)
-		n, err := db.attributesFile.Read(data)
+		n, err := db.fileHandles.attributesFile.Read(data)
 		if err != nil {
 			log.Println(err)
 			reachedEnd = true
@@ -537,7 +530,7 @@ func (db *Access) readSingleAttrItem(offset int64) (int64, string) {
 	data := make([]byte, datatypes.IdLength+datatypes.LinkedListPointerSize+1)
 
 	//skip first separator
-	db.attributesFile.ReadAt(data, offset)
+	db.fileHandles.attributesFile.ReadAt(data, offset)
 
 	//split along separator
 	parts := strings.Split(string(data), ":")
@@ -604,7 +597,7 @@ func (db *Access) getAttrListTailOffset(startOffset int64) int64 {
 
 func (db *Access) readDbData(indexData *datatypes.IndexData) string {
 	data := make([]byte, indexData.Size)
-	db.dbFile.ReadAt(data, int64(indexData.Offset))
+	db.fileHandles.dbFile.ReadAt(data, int64(indexData.Offset))
 	return string(data)
 }
 

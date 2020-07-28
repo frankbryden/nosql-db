@@ -51,6 +51,13 @@ type AttributesEntry struct {
 	ids  []string
 }
 
+//Collection represents a single database. This software can support multiple databases,
+//or `Collections`
+type Collection struct {
+	name string
+	path string
+}
+
 //WriteableRepr is a representation of an index entry as found in the index file
 func (ie *IndexEntry) WriteableRepr() []byte {
 	var builder strings.Builder

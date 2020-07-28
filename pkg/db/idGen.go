@@ -18,7 +18,7 @@ func NewIdGen() *IdGen {
 	}
 }
 
-func (ig *IdGen) GetId(data string) string {
+func (ig *IdGen) GetID(data string) string {
 	ig.h.Reset()
 	io.WriteString(ig.h, data)
 	dataHash := ig.h.Sum(nil)
