@@ -2,23 +2,28 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"nosql-db/pkg/db"
+	"nosql-db/pkg/util"
 	"strings"
 )
 
+//Server is capable of handling API requests
 type Server struct {
 	collectionsMapping map[string]db.Collection
 }
 
+//NewServer constructs a Server instance
 func NewServer() *Server {
 	return &Server{
 		collectionsMapping: db.LoadCollections(),
 	}
 }
 
+//Start the server
 func (s *Server) Start() {
 	http.Handle("/", s)
 	log.Fatal(http.ListenAndServe("127.0.0.1:80", nil))
@@ -35,6 +40,7 @@ func getBodyStr(resp http.ResponseWriter, r *http.Request) string {
 	return string(body)
 }
 
+//CollectionsListReq replies with list of collections
 func (s *Server) CollectionsListReq(resp http.ResponseWriter, r *http.Request) {
 	collectionEntries := db.ListCollections()
 	entryNames := make([]string, len(collectionEntries))
@@ -53,10 +59,42 @@ func (s *Server) CollectionsListReq(resp http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) WriteReq(collectionName string, resp http.ResponseWriter, r *http.Request) {
+//CreateCollectionReq serves collection creation requests
+func (s *Server) CreateCollectionReq(resp http.ResponseWriter, r *http.Request) {
 	bodyStr := getBodyStr(resp, r)
 
-	id, err := s.collectionsMapping[collectionName].Db.Write(bodyStr)
+	js := util.GetJSON(bodyStr)
+	collectionName, ok := js["name"].(string)
+
+	errMsg := ""
+	//double check received name is indeed a string
+	if !ok {
+		errMsg = "'name' is not of type string"
+	} else {
+		createdCollection := db.CreateCollection(collectionName)
+		if createdCollection != nil {
+			s.collectionsMapping[collectionName] = *createdCollection
+		}
+	}
+
+	if errMsg != "" {
+		resp.Write([]byte("{\"error\":\"" + errMsg + "\"}"))
+	} else {
+		resp.WriteHeader(http.StatusNoContent)
+	}
+}
+
+//WriteReq serves database write requests in a specified collection
+func (s *Server) WriteReq(collectionName string, resp http.ResponseWriter, r *http.Request) {
+	bodyStr := getBodyStr(resp, r)
+	var err error
+	var id string
+	if collection, ok := s.collectionsMapping[collectionName]; ok {
+		id, err = collection.Db.Write(bodyStr)
+	} else {
+		err = errors.New("no collection named '" + collectionName + "'")
+	}
+
 	//var errMsg string
 	errMsg := ""
 	responseBody := make(map[string]string)
@@ -77,6 +115,7 @@ func (s *Server) WriteReq(collectionName string, resp http.ResponseWriter, r *ht
 
 }
 
+//ReadReq serves database write requests in a specified collection
 func (s *Server) ReadReq(collectionName string, resp http.ResponseWriter, r *http.Request) {
 	bodyStr := getBodyStr(resp, r)
 
@@ -179,7 +218,15 @@ func (s *Server) ServeHTTP(resp http.ResponseWriter, r *http.Request) {
 				break
 			}
 		} else {
-			s.CollectionsListReq(resp, r)
+			switch r.Method {
+			case http.MethodGet:
+				s.CollectionsListReq(resp, r)
+				break
+			case http.MethodPost:
+				s.CreateCollectionReq(resp, r)
+				break
+			}
+
 			break
 		}
 

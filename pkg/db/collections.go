@@ -34,7 +34,8 @@ func InitCollections() {
 
 //ListCollections returns a slice of collection entries
 func ListCollections() []CollectionEntry {
-	f, err := os.Open(GetCollectionsHomePath())
+	collectionsHomePath := GetCollectionsHomePath()
+	f, err := os.Open(collectionsHomePath)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -48,9 +49,9 @@ func ListCollections() []CollectionEntry {
 		collectionName := parts[len(parts)-1]
 		entries[i] = CollectionEntry{
 			name: collectionName,
-			path: dirname,
+			path: collectionsHomePath + string(os.PathSeparator) + dirname,
 		}
-		log.Printf("Found collection %s at %s", collectionName, dirname)
+		log.Printf("Found collection %s at %s", entries[i].name, entries[i].path)
 	}
 	return entries
 }
@@ -66,14 +67,29 @@ func GetCollectionsHomePath() string {
 }
 
 //CreateCollection if it doesn't already exist.
-func CreateCollection(name string) {
+//Returns the collecion if it was created, nil otherwise
+func CreateCollection(name string) *Collection {
 	homePath := GetCollectionsHomePath()
 	collectionPath := homePath + string(os.PathSeparator) + name
 	if !util.FolderExists(collectionPath) {
 		os.Mkdir(collectionPath, 0755)
 		log.Printf("Created collection at %s", collectionPath)
-	} else {
-		log.Printf("Collection %s already exists", name)
+		collectionEntry := CollectionEntry{
+			name: name,
+			path: collectionPath,
+		}
+		return NewCollection(collectionEntry)
+	}
+	log.Printf("Collection %s already exists", name)
+	return nil
+}
+
+//NewCollection creates a collection instance from a collection entry instance
+func NewCollection(collectionEntry CollectionEntry) *Collection {
+	access := NewAccess(collectionEntry)
+	return &Collection{
+		entry: collectionEntry,
+		Db:    access,
 	}
 }
 
@@ -82,11 +98,7 @@ func CreateCollection(name string) {
 func LoadCollections() map[string]Collection {
 	collectionMap := make(map[string]Collection)
 	for _, collectionEntry := range ListCollections() {
-		access := NewAccess(collectionEntry)
-		collectionMap[collectionEntry.name] = Collection{
-			entry: collectionEntry,
-			Db:    access,
-		}
+		collectionMap[collectionEntry.name] = *NewCollection(collectionEntry)
 	}
 	return collectionMap
 }

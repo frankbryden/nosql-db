@@ -125,27 +125,28 @@ func (db *Access) Write(data string) (string, error) {
 	flattened := util.FlattenJSON(dat)
 	log.Println(flattened)
 
-	if jsonData, err := json.Marshal(dat); err != nil {
+	jsonData, err := json.Marshal(dat)
+
+	if err != nil {
 		log.Fatal(err)
 		return "", err
-	} else {
-
-		log.Println("Writing at offset " + strconv.Itoa(db.getDbFilePos()))
-
-		n := db.WriteToFile(jsonData)
-		log.Println("Wrote " + strconv.Itoa(n) + " bytes")
-
-		//Store information about entry. Will write this to the index file
-		indexEntry := datatypes.NewIndexEntry(int64(db.getDbFilePos()-n), -1, n, entryID)
-
-		//Write to index file
-		db.WriteIndex(indexEntry)
-
-		//We now need to write to attributes file
-		db.writeAttributes(flattened)
-
-		log.Println("Wrote " + string(jsonData))
 	}
+
+	log.Println("Writing at offset " + strconv.Itoa(db.getDbFilePos()))
+
+	n := db.WriteToFile(jsonData)
+	log.Println("Wrote " + strconv.Itoa(n) + " bytes")
+
+	//Store information about entry. Will write this to the index file
+	indexEntry := datatypes.NewIndexEntry(int64(db.getDbFilePos()-n), -1, n, entryID)
+
+	//Write to index file
+	db.WriteIndex(indexEntry)
+
+	//We now need to write to attributes file
+	db.writeAttributes(flattened)
+
+	log.Println("Wrote " + string(jsonData))
 
 	return entryID, nil
 }
@@ -422,23 +423,6 @@ func (db *Access) getSingleObjectFromID(id string) (datatypes.JS, error) {
 	log.Println("Found matching id at offset " + strconv.Itoa(int(indexData.Offset)))
 	dbData := db.readDbData(&indexData)
 	return util.GetJSON(dbData), nil
-}
-
-func (db *Access) getNextIdFromIndexFile() string {
-	//Loop over the file, skipping by EntryIndexSize bytes every time,
-	//and looking at the first IdLength bytes (to compare IDs)
-
-	data := make([]byte, getFileSize(db.fileHandles.indexFile))
-	db.fileHandles.indexFile.Read(data)
-	curIndex := 0
-	//startIndex := 0
-	for rune(data[curIndex]) != ';' {
-		curIndex++
-	}
-
-	//indexEntry := 4
-	log.Println("Found a ; at " + strconv.Itoa(curIndex))
-	return "id"
 }
 
 //returns offset, id (of first item in attribute list)
