@@ -10,12 +10,12 @@ import (
 )
 
 type Server struct {
-	db *db.Access
+	collectionsMapping map[string]db.Collection
 }
 
-func NewServer(db *db.Access) *Server {
+func NewServer() *Server {
 	return &Server{
-		db: db,
+		collectionsMapping: db.LoadCollections(),
 	}
 }
 
@@ -35,10 +35,28 @@ func getBodyStr(resp http.ResponseWriter, r *http.Request) string {
 	return string(body)
 }
 
-func (s *Server) WriteReq(resp http.ResponseWriter, r *http.Request) {
+func (s *Server) CollectionsListReq(resp http.ResponseWriter, r *http.Request) {
+	collectionEntries := db.ListCollections()
+	entryNames := make([]string, len(collectionEntries))
+	for i, entry := range collectionEntries {
+		entryNames[i] = entry.GetName()
+	}
+	errMsg := ""
+	if jsonBody, jsonErr := json.Marshal(entryNames); jsonErr == nil {
+		resp.Write(jsonBody)
+	} else {
+		errMsg = jsonErr.Error()
+	}
+
+	if errMsg != "" {
+		resp.Write([]byte("{\"error\":\"" + errMsg + "\"}"))
+	}
+}
+
+func (s *Server) WriteReq(collectionName string, resp http.ResponseWriter, r *http.Request) {
 	bodyStr := getBodyStr(resp, r)
 
-	id, err := s.db.Write(bodyStr)
+	id, err := s.collectionsMapping[collectionName].Db.Write(bodyStr)
 	//var errMsg string
 	errMsg := ""
 	responseBody := make(map[string]string)
@@ -59,10 +77,10 @@ func (s *Server) WriteReq(resp http.ResponseWriter, r *http.Request) {
 
 }
 
-func (s *Server) ReadReq(resp http.ResponseWriter, r *http.Request) {
+func (s *Server) ReadReq(collectionName string, resp http.ResponseWriter, r *http.Request) {
 	bodyStr := getBodyStr(resp, r)
 
-	objects, err := s.db.Read(bodyStr)
+	objects, err := s.collectionsMapping[collectionName].Db.Read(bodyStr)
 
 	errMsg := ""
 
@@ -95,10 +113,10 @@ func (s *Server) ReadReq(resp http.ResponseWriter, r *http.Request) {
 }
 
 //DeleteReq serves requests on the delete endpoint/resource
-func (s *Server) DeleteReq(resp http.ResponseWriter, r *http.Request) {
+func (s *Server) DeleteReq(collectionName string, resp http.ResponseWriter, r *http.Request) {
 	bodyStr := getBodyStr(resp, r)
 
-	result, err := s.db.Delete(bodyStr)
+	result, err := s.collectionsMapping[collectionName].Db.Delete(bodyStr)
 
 	errMsg := ""
 
@@ -146,15 +164,25 @@ func (s *Server) ServeHTTP(resp http.ResponseWriter, r *http.Request) {
 	case "version":
 		resp.Write([]byte("1.0"))
 		break
-	case "create":
-		s.WriteReq(resp, r)
-		break
-	case "read":
-		s.ReadReq(resp, r)
-		break
-	case "delete":
-		s.DeleteReq(resp, r)
-		break
+	case "collections":
+		if len(split) > 2 {
+			collectionName := split[2]
+			switch split[3] {
+			case "create":
+				s.WriteReq(collectionName, resp, r)
+				break
+			case "read":
+				s.ReadReq(collectionName, resp, r)
+				break
+			case "delete":
+				s.DeleteReq(collectionName, resp, r)
+				break
+			}
+		} else {
+			s.CollectionsListReq(resp, r)
+			break
+		}
+
 	default:
 		log.Printf("'%s' did not match any path", split[0])
 	}

@@ -1,6 +1,8 @@
 package util
 
 import (
+	"encoding/json"
+	"nosql-db/pkg/datatypes"
 	"reflect"
 )
 
@@ -101,4 +103,19 @@ func IsJSONObj(k string, data map[string]interface{}) bool {
 	obj := make(map[string]interface{})
 	obj["hey"] = "yo"
 	return reflect.TypeOf(data[k]) == reflect.TypeOf(obj)
+}
+
+//GetJSON object from string
+func GetJSON(data string) datatypes.JS {
+	var dat datatypes.JS
+	if err := json.Unmarshal([]byte(data), &dat); err != nil {
+		//TODO handle this more graciously. Namely, check if it is a
+		//JSON formatting issue, and return error to user.
+		//UPDATE: this will definitely be needed if, when deleting elements from the db,
+		//this is only done in the index file, and not the attribute file. In that case,
+		//lookups in the attribute file will give hits to IDs which no longer exist in the
+		//index file.
+		panic(err)
+	}
+	return dat
 }

@@ -14,9 +14,6 @@ import (
 
 const dbFile = "mydb.db"
 
-//JS represents a json object in go's primitives
-type JS map[string]interface{}
-
 //Access the underlying db with common CRUD operations
 type Access struct {
 	state       string
@@ -41,21 +38,6 @@ func openFile(fileName string) *os.File {
 	return file
 }
 
-//getJSON object from string
-func getJSON(data string) JS {
-	var dat JS
-	if err := json.Unmarshal([]byte(data), &dat); err != nil {
-		//TODO handle this more graciously. Namely, check if it is a
-		//JSON formatting issue, and return error to user.
-		//UPDATE: this will definitely be needed if, when deleting elements from the db,
-		//this is only done in the index file, and not the attribute file. In that case,
-		//lookups in the attribute file will give hits to IDs which no longer exist in the
-		//index file.
-		panic(err)
-	}
-	return dat
-}
-
 func getFileContents(f *os.File) string {
 	fileContents := make([]byte, getFileSize(f))
 	f.Read(fileContents)
@@ -63,8 +45,8 @@ func getFileContents(f *os.File) string {
 }
 
 //NewAccess constructs an Access instance from a db name
-func NewAccess(dbName string) *Access {
-	fileHandles := NewFileHandles(dbName)
+func NewAccess(collectionEntry CollectionEntry) *Access {
+	fileHandles := NewFileHandles(collectionEntry)
 	return &Access{
 		state:       "ready",
 		fileHandles: fileHandles,
@@ -74,10 +56,11 @@ func NewAccess(dbName string) *Access {
 }
 
 //NewFileHandles constructs a FileHandles instance from a db name
-func NewFileHandles(dbName string) *FileHandles {
-	dbFile := getFile(dbName)
-	indexFile := getFile(dbName + datatypes.IndexFileExtension)
-	attributesFile := getFile(dbName + datatypes.AttributeFileExtension)
+func NewFileHandles(collectionEntry CollectionEntry) *FileHandles {
+	path := collectionEntry.path + string(os.PathSeparator) + collectionEntry.name
+	dbFile := getFile(path + datatypes.DBFileExtension)
+	indexFile := getFile(path + datatypes.IndexFileExtension)
+	attributesFile := getFile(path + datatypes.AttributeFileExtension)
 	return &FileHandles{
 		dbFile:         dbFile,
 		indexFile:      indexFile,
@@ -135,7 +118,7 @@ func (db *Access) WriteToFile(data []byte) int {
 
 //Write data to the database. `data` is a raw JSON string
 func (db *Access) Write(data string) (string, error) {
-	dat := getJSON(data)
+	dat := util.GetJSON(data)
 	entryID := db.idGen.GetID(data)
 	dat["id"] = entryID
 
@@ -203,7 +186,7 @@ func (db *Access) DeleteIndex(id string) {
 	db.indexTable.Remove(id)
 }
 
-func (db *Access) writeAttributes(data JS) {
+func (db *Access) writeAttributes(data datatypes.JS) {
 	log.Printf("%s, (%v)", "writeAttributes", data)
 	id := data["id"].(string)
 	delete(data, "id")
@@ -263,29 +246,29 @@ func (db *Access) writeAttribute(key string, id string) {
 }
 
 //Read from the database, filtering the data based on `data`
-func (db *Access) Read(data string) ([]JS, error) {
+func (db *Access) Read(data string) ([]datatypes.JS, error) {
 	if len(data) == 0 {
 		err := errors.New("Empty request")
 		return nil, err
 	}
-	query := getJSON(data)
+	query := util.GetJSON(data)
 
 	return db.retrieveFromQuery(query)
 }
 
 //Update all entries from the database which match the filter in `data`
-func (db *Access) Update(data string) JS {
-	js := make(JS)
+func (db *Access) Update(data string) datatypes.JS {
+	js := make(datatypes.JS)
 	return js
 }
 
 //Delete all entries matching the filter in `data`
-func (db *Access) Delete(data string) (JS, error) {
+func (db *Access) Delete(data string) (datatypes.JS, error) {
 	if len(data) == 0 {
 		err := errors.New("Empty request")
 		return nil, err
 	}
-	query := getJSON(data)
+	query := util.GetJSON(data)
 
 	toDelete, err := db.retrieveFromQuery(query)
 
@@ -297,12 +280,12 @@ func (db *Access) Delete(data string) (JS, error) {
 		db.DeleteIndex(item["id"].(string))
 	}
 
-	result := make(JS)
+	result := make(datatypes.JS)
 	result["deleteCount"] = len(toDelete)
 	return result, nil
 }
 
-func (db *Access) retrieveFromQuery(query JS) ([]JS, error) {
+func (db *Access) retrieveFromQuery(query datatypes.JS) ([]datatypes.JS, error) {
 	if id, ok := query["id"]; ok {
 		if idStr, ok := id.(string); ok {
 			log.Println("query for id " + idStr)
@@ -312,13 +295,13 @@ func (db *Access) retrieveFromQuery(query JS) ([]JS, error) {
 				return nil, errors.New("Object deleted")
 			}
 			object := jsObj
-			return []JS{object}, nil
+			return []datatypes.JS{object}, nil
 		}
 	} else {
 		return db.getFilteredData(util.FlattenJSON(query)), nil
 	}
 
-	return []JS{JS{"Yeah": "hey"}}, nil
+	return []datatypes.JS{datatypes.JS{"Yeah": "hey"}}, nil
 }
 
 /*
@@ -333,12 +316,12 @@ UPDATE: better method, involving less disk-reading = better performance.
 	-> now we can filter on the data with all attributes directly,
 	   as we know each object contains all the requested attributes
 */
-func (db *Access) getFilteredData(query JS) []JS {
+func (db *Access) getFilteredData(query datatypes.JS) []datatypes.JS {
 	//In the case of an empty query `{}`, return all objects stored in db
 	if len(query) == 0 {
 		return db.getAllObjects()
 	}
-	//var filteredLists [][]JS
+	//var filteredLists [][]datatypes.JS
 
 	//Will hold a mapping from attribute name -> list of IDs of objects containing that attribute
 	//attributesIDs := make(map[string][]string)
@@ -362,7 +345,7 @@ func (db *Access) getFilteredData(query JS) []JS {
 
 //applyFilter gets objects from db based on `ids`, and only keeps objects whose attributes/values match
 //those in `filter`
-func (db *Access) applyFilter(ids []string, filter JS) []JS {
+func (db *Access) applyFilter(ids []string, filter datatypes.JS) []datatypes.JS {
 	log.Printf("%s, (%v, %v)", "applyFilter", ids, filter)
 	//Every item in objects will have at least all the attributes in filter
 	objects := db.getAllObjectsFromIds(ids)
@@ -371,7 +354,7 @@ func (db *Access) applyFilter(ids []string, filter JS) []JS {
 
 	//TODO may need to rethink this, based on performance cost.
 	//repeatedly appending is heavily inefficient in the worst-case scenario (filter selects all elements)
-	var filteredObjects []JS
+	var filteredObjects []datatypes.JS
 
 	for _, obj := range objects {
 		//keeps track of wether current object matches filter
@@ -405,14 +388,14 @@ func (db *Access) applyFilter(ids []string, filter JS) []JS {
 
 }
 
-func (db *Access) getAllObjects() []JS {
+func (db *Access) getAllObjects() []datatypes.JS {
 	return db.getAllObjectsFromIds(db.indexTable.GetAllIds())
 }
 
-func (db *Access) getAllObjectsFromIds(ids []string) []JS {
+func (db *Access) getAllObjectsFromIds(ids []string) []datatypes.JS {
 	log.Println(ids)
 	log.Printf("(len = %d)", len(ids)) //len = 2 here
-	objects := make([]JS, len(ids))
+	objects := make([]datatypes.JS, len(ids))
 	for i, id := range ids {
 		jsObj, err := db.getSingleObjectFromID(id)
 		if err != nil {
@@ -425,7 +408,7 @@ func (db *Access) getAllObjectsFromIds(ids []string) []JS {
 }
 
 //getSingleObjectFromID returns JS instance from db given `id`
-func (db *Access) getSingleObjectFromID(id string) (JS, error) {
+func (db *Access) getSingleObjectFromID(id string) (datatypes.JS, error) {
 	log.Printf("looking up object with id = '%s'", id)
 	indexData, err := db.indexTable.Get(id)
 	if err != nil {
@@ -438,7 +421,7 @@ func (db *Access) getSingleObjectFromID(id string) (JS, error) {
 	}
 	log.Println("Found matching id at offset " + strconv.Itoa(int(indexData.Offset)))
 	dbData := db.readDbData(&indexData)
-	return getJSON(dbData), nil
+	return util.GetJSON(dbData), nil
 }
 
 func (db *Access) getNextIdFromIndexFile() string {

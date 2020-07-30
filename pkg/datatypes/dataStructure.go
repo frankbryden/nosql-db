@@ -7,6 +7,9 @@ import (
 	"strings"
 )
 
+//DBFileExtension is the file extension of the index file
+const DBFileExtension = ".db"
+
 //IndexFileExtension is the file extension of the index file
 const IndexFileExtension = ".index"
 
@@ -51,12 +54,8 @@ type AttributesEntry struct {
 	ids  []string
 }
 
-//Collection represents a single database. This software can support multiple databases,
-//or `Collections`
-type Collection struct {
-	name string
-	path string
-}
+//JS represents a json object in go's primitives
+type JS map[string]interface{}
 
 //WriteableRepr is a representation of an index entry as found in the index file
 func (ie *IndexEntry) WriteableRepr() []byte {

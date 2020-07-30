@@ -10,8 +10,7 @@ func main() {
 	log.SetFlags(log.Lshortfile | log.Ltime)
 
 	db.InitCollections()
-	dbAcc := db.NewAccess("my.db")
-	s := api.NewServer(dbAcc)
+	s := api.NewServer()
 	s.Start()
 
 }
