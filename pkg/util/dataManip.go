@@ -119,3 +119,24 @@ func GetJSON(data string) datatypes.JS {
 	}
 	return dat
 }
+
+func mergeRFC7396(target, patch interface{}) datatypes.JS {
+	if IsJSONObj(patch) {
+		if !IsJSONObj(target) {
+			target = datatypes.JS{} // Ignore the contents and set it to an empty Object
+			for k, v := range patch {
+				if v == nil {
+					delete(target, k)
+				} else {
+					target[k] = mergeRFC7396(target[k].(JS), v.(JS))
+				}
+			}
+
+		} else {
+			return target
+		}
+	} else {
+		return patch
+	}
+
+}

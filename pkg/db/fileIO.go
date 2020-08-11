@@ -3,6 +3,7 @@ package db
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"nosql-db/pkg/datatypes"
@@ -257,10 +258,17 @@ func (db *Access) Read(data string) ([]datatypes.JS, error) {
 	return db.retrieveFromQuery(query)
 }
 
-//Update all entries from the database which match the filter in `data`
-func (db *Access) Update(data string) datatypes.JS {
+//Update entry with id=`id` from the databas
+func (db *Access) Update(id, data string) (datatypes.JS, error) {
 	js := make(datatypes.JS)
-	return js
+
+	object, e := db.Read(fmt.Sprintf("{\"id\":\"%s\"}", id))
+	if e != nil {
+		log.Printf("Object with id %s not found", id)
+		return nil, fmt.Errorf("Object with id %s not found", id)
+	}
+	log.Printf("Updating object %v", object)
+	return js, nil
 }
 
 //Delete all entries matching the filter in `data`

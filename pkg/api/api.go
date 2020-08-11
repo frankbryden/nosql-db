@@ -185,6 +185,44 @@ func (s *Server) DeleteReq(collectionName string, resp http.ResponseWriter, r *h
 	}
 }
 
+//UpdateReq serves requests on the delete endpoint/resource
+func (s *Server) UpdateReq(collectionName, id string, resp http.ResponseWriter, r *http.Request) {
+	errMsg := ""
+
+	if r.Method != http.MethodPatch {
+		errMsg = "Only PATCH is supported at this endpoint"
+	} else {
+		bodyStr := getBodyStr(resp, r)
+
+		result, err := s.collectionsMapping[collectionName].Db.Update(id, bodyStr)
+
+		if err == nil {
+			/*rawBody, err := json.RawMessage(objects).MarshalJSON()
+			if err != nil {
+				errMsg = err.Error()
+			} else {
+				responseBody["objects"] = string(rawBody)
+				log.Println("Raw Body followed by the string() version")
+				log.Println(rawBody)
+				log.Println(string(rawBody))
+			}*/
+			if jsonBody, jsonErr := json.Marshal(result); jsonErr == nil {
+				log.Println(result)
+				resp.Write(jsonBody)
+			} else {
+				errMsg = err.Error()
+			}
+
+		} else {
+			errMsg = err.Error()
+		}
+	}
+
+	if errMsg != "" {
+		resp.Write([]byte("{\"error\":\"" + errMsg + "\"}"))
+	}
+}
+
 func (s *Server) ServeHTTP(resp http.ResponseWriter, r *http.Request) {
 	// Immediate solution, not the prettiest:
 	// 1. Split incoming path by /
@@ -216,6 +254,9 @@ func (s *Server) ServeHTTP(resp http.ResponseWriter, r *http.Request) {
 			case "delete":
 				s.DeleteReq(collectionName, resp, r)
 				break
+			default:
+				log.Printf("Assuming %s is an ID", split[3])
+				s.UpdateReq(collectionName, split[3], resp, r)
 			}
 		} else {
 			switch r.Method {
