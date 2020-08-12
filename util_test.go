@@ -1,6 +1,8 @@
 package main
 
 import (
+	"encoding/json"
+	"log"
 	"nosql-db/pkg/util"
 	"reflect"
 	"testing"
@@ -30,4 +32,19 @@ func TestJSONFlatten(t *testing.T) {
 		t.Errorf("Expected %v, got %v", jsExpected, jsFlattened)
 	}
 
+}
+
+func TestJSONMerge(t *testing.T) {
+	log.SetFlags(log.Lshortfile | log.Ltime)
+	input := util.GetJSON("{\"title\": \"Goodbye!\",\"author\" : {\"givenName\" : \"John\",\"familyName\" : \"Doe\"},\"tags\":[ \"example\", \"sample\" ],\"content\": \"This will be unchanged\"}")
+	patch := util.GetJSON("{\"title\": \"Hello!\",\"phoneNumber\": \"+01-123-456-7890\",\"author\": {\"familyName\": null},\"tags\": [ \"example\" ]}")
+	expected := util.GetJSON("{\"title\": \"Hello!\",\"author\" : {\"givenName\" : \"John\"},\"tags\": [ \"example\" ],\"content\": \"This will be unchanged\",\"phoneNumber\": \"+01-123-456-7890\"}")
+
+	out := util.MergeRFC7396(input, patch)
+
+	if !reflect.DeepEqual(out, expected) {
+		expectedStr, _ := json.MarshalIndent(expected, "", "\t")
+		outStr, _ := json.MarshalIndent(out, "", "\t")
+		t.Errorf("Expected\n%s, got\n%s", expectedStr, outStr)
+	}
 }

@@ -2,6 +2,7 @@ package util
 
 import (
 	"encoding/json"
+	"log"
 	"nosql-db/pkg/datatypes"
 	"reflect"
 )
@@ -120,23 +121,41 @@ func GetJSON(data string) datatypes.JS {
 	return dat
 }
 
-func mergeRFC7396(target, patch interface{}) datatypes.JS {
-	if IsJSONObj(patch) {
-		if !IsJSONObj(target) {
-			target = datatypes.JS{} // Ignore the contents and set it to an empty Object
-			for k, v := range patch {
-				if v == nil {
-					delete(target, k)
-				} else {
-					target[k] = mergeRFC7396(target[k].(JS), v.(JS))
-				}
-			}
+func IsJSONObj2(data interface{}) bool {
+	_, ok := data.(datatypes.JS)
+	return ok
+}
 
+func mergeRFC7396(target, patch interface{}) interface{} {
+	log.Printf("%v, %v", target, patch)
+	if IsJSONObj2(patch) {
+		patchObj := patch.(datatypes.JS)
+		var targetObj datatypes.JS
+		if !IsJSONObj2(target) {
+			targetObj = datatypes.JS{} // Ignore the contents and set it to an empty Object
 		} else {
-			return target
+			log.Printf("Here with %v", target)
+			targetObj = target.(datatypes.JS)
 		}
+		for k, v := range patchObj {
+			log.Printf("%v -> %v", k, v)
+			if v == nil {
+				delete(targetObj, k)
+			} else {
+				targetObj[k] = mergeRFC7396(targetObj[k], v)
+			}
+		}
+		return targetObj
 	} else {
+		log.Printf("%v is not an object", patch)
+		log.Printf("Type : %v", reflect.TypeOf(patch))
+		_, ok := patch.(datatypes.JS)
+		log.Printf("On first test: %t, On second test: %t", IsJSONObj2(patch), ok)
 		return patch
 	}
 
+}
+
+func MergeRFC7396(target, patch interface{}) datatypes.JS {
+	return mergeRFC7396(target, patch).(datatypes.JS)
 }
