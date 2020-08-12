@@ -121,18 +121,30 @@ func GetJSON(data string) datatypes.JS {
 	return dat
 }
 
-func IsJSONObj2(data interface{}) bool {
+func IsObj(data interface{}) bool {
 	_, ok := data.(datatypes.JS)
 	return ok
 }
 
 func mergeRFC7396(target, patch interface{}) interface{} {
 	log.Printf("%v, %v", target, patch)
-	if IsJSONObj2(patch) {
-		patchObj := patch.(datatypes.JS)
+	_, isJsPrimitive := patch.(map[string]interface{})
+	if IsObj(patch) || isJsPrimitive {
+		patchObj, ok := patch.(datatypes.JS)
+		if !ok {
+			patchObj = patch.(map[string]interface{})
+		}
+		log.Printf("Patch obj: %v", patchObj)
 		var targetObj datatypes.JS
-		if !IsJSONObj2(target) {
-			targetObj = datatypes.JS{} // Ignore the contents and set it to an empty Object
+		if !IsObj(target) {
+			_, ok := target.(map[string]interface{})
+			if !ok {
+				log.Printf("Ignoring %v", target)
+				targetObj = datatypes.JS{} // Ignore the contents and set it to an empty Object
+			} else {
+				log.Printf("Preserving %v", target)
+			}
+
 		} else {
 			log.Printf("Here with %v", target)
 			targetObj = target.(datatypes.JS)
@@ -140,6 +152,7 @@ func mergeRFC7396(target, patch interface{}) interface{} {
 		for k, v := range patchObj {
 			log.Printf("%v -> %v", k, v)
 			if v == nil {
+				log.Printf("Delete %s from %v", k, targetObj)
 				delete(targetObj, k)
 			} else {
 				targetObj[k] = mergeRFC7396(targetObj[k], v)
@@ -147,10 +160,7 @@ func mergeRFC7396(target, patch interface{}) interface{} {
 		}
 		return targetObj
 	} else {
-		log.Printf("%v is not an object", patch)
-		log.Printf("Type : %v", reflect.TypeOf(patch))
-		_, ok := patch.(datatypes.JS)
-		log.Printf("On first test: %t, On second test: %t", IsJSONObj2(patch), ok)
+		log.Printf("Nope on %v", patch)
 		return patch
 	}
 
@@ -158,4 +168,5 @@ func mergeRFC7396(target, patch interface{}) interface{} {
 
 func MergeRFC7396(target, patch interface{}) datatypes.JS {
 	return mergeRFC7396(target, patch).(datatypes.JS)
+	//return mergeRFC7396(inPrimitiveFormTarget, inPrimitiveFormPatch).(datatypes.JS)
 }
