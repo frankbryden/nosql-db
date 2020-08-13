@@ -121,7 +121,19 @@ func (db *Access) WriteToFile(data []byte) int {
 func (db *Access) Write(data string) (string, error) {
 	dat := util.GetJSON(data)
 	entryID := db.idGen.GetID(data)
-	dat["id"] = entryID
+	//if this is a fresh object, give it an ID and write the new entry to the index file.
+	//if not, use the old ID and write the index file entry using the Update of IndexFile
+	var freshObject bool
+	if _, ok := dat["id"]; ok {
+		freshObject = false
+	} else {
+		freshObject = true
+	}
+	if freshObject {
+		dat["id"] = entryID
+	} else {
+		entryID = dat["id"].(string)
+	}
 
 	flattened := util.FlattenJSON(dat)
 	log.Println(flattened)
@@ -138,8 +150,18 @@ func (db *Access) Write(data string) (string, error) {
 	n := db.WriteToFile(jsonData)
 	log.Println("Wrote " + strconv.Itoa(n) + " bytes")
 
+	//If we are updating an object, then update the entry in the index file. For that, get its offset in the
+	//offset file.
+	indexFileOffset := int64(-1)
+	if !freshObject {
+		indexData, err := db.indexTable.Get(entryID)
+		if err != nil {
+			return "", err
+		}
+		indexFileOffset = indexData.IndexFileOffset
+	}
 	//Store information about entry. Will write this to the index file
-	indexEntry := datatypes.NewIndexEntry(int64(db.getDbFilePos()-n), -1, n, entryID)
+	indexEntry := datatypes.NewIndexEntry(int64(db.getDbFilePos()-n), indexFileOffset, n, entryID)
 
 	//Write to index file
 	db.WriteIndex(indexEntry)
@@ -155,6 +177,8 @@ func (db *Access) Write(data string) (string, error) {
 //WriteIndex takes an IndexEntry and writes it to the index file
 //returns offset of write start
 func (db *Access) WriteIndex(ie *datatypes.IndexEntry) int64 {
+	//TODO fix this func with appropriate seeking based on ie.
+	//Also, need to update map and not insert when ID already there (update).
 	//Get write start (value to be returned)
 	offset, _ := db.fileHandles.indexFile.Seek(0, 2)
 
@@ -260,15 +284,46 @@ func (db *Access) Read(data string) ([]datatypes.JS, error) {
 
 //Update entry with id=`id` from the databas
 func (db *Access) Update(id, data string) (datatypes.JS, error) {
-	js := make(datatypes.JS)
-
-	object, e := db.Read(fmt.Sprintf("{\"id\":\"%s\"}", id))
+	idQuery := fmt.Sprintf("{\"id\":\"%s\"}", id)
+	objects, e := db.Read(idQuery)
 	if e != nil {
 		log.Printf("Object with id %s not found", id)
 		return nil, fmt.Errorf("Object with id %s not found", id)
 	}
+
+	if len(objects) > 1 {
+		log.Printf("Ambiguous query matches more than one record: %v", objects)
+		return nil, fmt.Errorf("Ambiguous query matches more than one record: %v", objects)
+	}
+
+	object := objects[0]
+
 	log.Printf("Updating object %v", object)
-	return js, nil
+	patchObj := util.GetJSON(data)
+	updated := util.MergeRFC7396(object, patchObj)
+	updatedStr, _ := json.MarshalIndent(updated, "", "\t")
+	updatedRawBytes, _ := json.Marshal(updated)
+	log.Printf("After update we have\n%s", updatedStr)
+
+	//For now, we'll delete the original object and write the new one as a new entry.
+	//Later, we'll overwrite the new object over the original if the lengths match (probably a fairly uncommon case)
+	//Even later, we'll see if we can come up with clever techniques for optimising file space.
+	//UPDATE: Ah. Something I hadn't thought of. We want to preserve the id, meaning it's not a simple case of delete+write
+	//the updated object, as that gives it a fresh new ID. Instead, we need a new method who's job is specifically that:
+	//   - Write an updated object to the db file
+	//   - DO NOT write a new entry to the index file; instead, update the entry with the ID of the old object
+	//Delete
+	_, err := db.Delete(idQuery)
+	if err != nil {
+		return patchObj, err
+	}
+	//Write
+	_, err = db.Write(string(updatedRawBytes))
+	if err != nil {
+		return patchObj, err
+	}
+	//Return final object.
+	return patchObj, nil
 }
 
 //Delete all entries matching the filter in `data`

@@ -2,6 +2,7 @@ package util
 
 import (
 	"encoding/json"
+	"log"
 	"nosql-db/pkg/datatypes"
 	"reflect"
 )
@@ -204,7 +205,9 @@ func mergeRFC7396(target, patch interface{}) interface{} {
 //	 	"content": "This will be unchanged",
 //	 	"phoneNumber": "+01-123-456-7890"
 //   }
-func MergeRFC7396(target, patch interface{}) datatypes.JS {
-	return mergeRFC7396(target, patch).(datatypes.JS)
+func MergeRFC7396(target, patch datatypes.JS) datatypes.JS {
+	result := mergeRFC7396(target, patch)
+	log.Printf("Merge result is %v", result)
+	return result.(datatypes.JS)
 	//return mergeRFC7396(inPrimitiveFormTarget, inPrimitiveFormPatch).(datatypes.JS)
 }
