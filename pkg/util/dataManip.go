@@ -2,7 +2,6 @@ package util
 
 import (
 	"encoding/json"
-	"log"
 	"nosql-db/pkg/datatypes"
 	"reflect"
 )
@@ -108,7 +107,7 @@ func IsJSONObj(k string, data map[string]interface{}) bool {
 
 //GetJSON object from string
 func GetJSON(data string) datatypes.JS {
-	var dat datatypes.JS
+	var dat map[string]interface{}
 	if err := json.Unmarshal([]byte(data), &dat); err != nil {
 		//TODO handle this more graciously. Namely, check if it is a
 		//JSON formatting issue, and return error to user.
@@ -118,7 +117,26 @@ func GetJSON(data string) datatypes.JS {
 		//index file.
 		panic(err)
 	}
-	return dat
+	return ConvertToJSON(dat)
+}
+
+//ConvertToJSON recursively descends a map[string]interface{}, converting all
+//inner data into JS structs
+func ConvertToJSON(data map[string]interface{}) datatypes.JS {
+	js, _ := convertToJSON(data).(datatypes.JS)
+	return js
+}
+
+func convertToJSON(data interface{}) interface{} {
+	if !isJSPrimitive(data) {
+		return data
+	}
+	dataObj := data.(map[string]interface{})
+	jsObj := datatypes.JS{}
+	for k, v := range dataObj {
+		jsObj[k] = convertToJSON(v)
+	}
+	return jsObj
 }
 
 func IsObj(data interface{}) bool {
@@ -126,46 +144,66 @@ func IsObj(data interface{}) bool {
 	return ok
 }
 
+func isJSPrimitive(data interface{}) bool {
+	_, ok := data.(map[string]interface{})
+	return ok
+}
+
 func mergeRFC7396(target, patch interface{}) interface{} {
-	log.Printf("%v, %v", target, patch)
-	_, isJsPrimitive := patch.(map[string]interface{})
-	if IsObj(patch) || isJsPrimitive {
-		patchObj, ok := patch.(datatypes.JS)
-		if !ok {
-			patchObj = patch.(map[string]interface{})
-		}
-		log.Printf("Patch obj: %v", patchObj)
+	if IsObj(patch) {
+		patchObj, _ := patch.(datatypes.JS)
 		var targetObj datatypes.JS
 		if !IsObj(target) {
-			_, ok := target.(map[string]interface{})
-			if !ok {
-				log.Printf("Ignoring %v", target)
-				targetObj = datatypes.JS{} // Ignore the contents and set it to an empty Object
-			} else {
-				log.Printf("Preserving %v", target)
-			}
-
+			targetObj = datatypes.JS{} // Ignore the contents and set it to an empty Object
 		} else {
-			log.Printf("Here with %v", target)
 			targetObj = target.(datatypes.JS)
 		}
 		for k, v := range patchObj {
-			log.Printf("%v -> %v", k, v)
 			if v == nil {
-				log.Printf("Delete %s from %v", k, targetObj)
 				delete(targetObj, k)
 			} else {
 				targetObj[k] = mergeRFC7396(targetObj[k], v)
 			}
 		}
 		return targetObj
-	} else {
-		log.Printf("Nope on %v", patch)
-		return patch
 	}
-
+	return patch
 }
 
+//MergeRFC7396 implements RFC7396 to patch a json object according to another
+//From https://tools.ietf.org/html/rfc7396
+// Given the following example JSON document:
+//
+//    {
+//      "title": "Goodbye!",
+//      "author" : {
+//        "givenName" : "John",
+//        "familyName" : "Doe"
+//      },
+//      "tags":[ "example", "sample" ],
+//      "content": "This will be unchanged"
+//    }
+//
+// And the following PATCH object
+//    {
+//	 	"title": "Hello!",
+//	 	"phoneNumber": "+01-123-456-7890",
+//	 	"author": {
+//	 	  "familyName": null
+//	 	},
+//	 	"tags": [ "example" ]
+//   }
+//
+//   The resulting JSON document would be:
+//   {
+//	 	"title": "Hello!",
+//	 	"author" : {
+//	 	  "givenName" : "John"
+//	 	},
+//	 	"tags": [ "example" ],
+//	 	"content": "This will be unchanged",
+//	 	"phoneNumber": "+01-123-456-7890"
+//   }
 func MergeRFC7396(target, patch interface{}) datatypes.JS {
 	return mergeRFC7396(target, patch).(datatypes.JS)
 	//return mergeRFC7396(inPrimitiveFormTarget, inPrimitiveFormPatch).(datatypes.JS)
