@@ -179,8 +179,14 @@ func (db *Access) Write(data string) (string, error) {
 func (db *Access) WriteIndex(ie *datatypes.IndexEntry) int64 {
 	//TODO fix this func with appropriate seeking based on ie.
 	//Also, need to update map and not insert when ID already there (update).
+	log.Printf("ie object: %v", ie)
 	//Get write start (value to be returned)
-	offset, _ := db.fileHandles.indexFile.Seek(0, 2)
+	var offset int64
+	if ie.GetIndexData().IndexFileOffset == -1 {
+		offset, _ = db.fileHandles.indexFile.Seek(0, 2)
+	} else {
+		offset, _ = db.fileHandles.indexFile.Seek(ie.GetIndexData().IndexFileOffset, 0)
+	}
 
 	//Write to disk but ALSO to in-memory table
 	db.fileHandles.indexFile.Write(ie.WriteableRepr())
@@ -312,13 +318,11 @@ func (db *Access) Update(id, data string) (datatypes.JS, error) {
 	//the updated object, as that gives it a fresh new ID. Instead, we need a new method who's job is specifically that:
 	//   - Write an updated object to the db file
 	//   - DO NOT write a new entry to the index file; instead, update the entry with the ID of the old object
-	//Delete
-	_, err := db.Delete(idQuery)
-	if err != nil {
-		return patchObj, err
-	}
+	//UPDATE 2: Do not delete. Deleting simply removes the corresponding index entry - leaving the db file unchanged.
+	//The second step of the update is overwriting the said index entry, meaning it must not be deleted.
+
 	//Write
-	_, err = db.Write(string(updatedRawBytes))
+	_, err := db.Write(string(updatedRawBytes))
 	if err != nil {
 		return patchObj, err
 	}
