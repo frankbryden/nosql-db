@@ -330,14 +330,11 @@ func (db *Access) Update(id, data string) (datatypes.JS, error) {
 	//The second step of the update is overwriting the said index entry, meaning it must not be deleted.
 	//UPDATE 3: Ok we need to delete from db file. The issue is querying by attributes other than ID ignore the IndexFile,
 	//meaning the info that the object has been deleted is lost.
-	indexData, err := db.indexTable.Get(id)
-	if err != nil {
-		return nil, err
-	}
-	db.DeleteFromDBFile(&indexData)
+	//UPDATE 4: No we do not. The searching by attributes is done through the attribute file, meaning it's from there.
+	//For now, we simply remove duplicate IDs.
 
 	//Write
-	_, err = db.Write(string(updatedRawBytes))
+	_, err := db.Write(string(updatedRawBytes))
 	if err != nil {
 		return patchObj, err
 	}
