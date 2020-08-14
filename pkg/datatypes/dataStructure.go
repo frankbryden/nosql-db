@@ -19,14 +19,14 @@ const AttributeFileExtension = ".attr"
 //IndexEntrySize is the size in bytes of a single entry in the index file
 const IndexEntrySize = 30
 
-//IdLength is the size in bytes of a single ID in index/attr files
-const IdLength = 14
+//IDLength is the size in bytes of a single ID in index/attr files
+const IDLength = 14
 
 //LinkedListPointerSize is the size in bytes of a single pointer (offset) in the attr file
 const LinkedListPointerSize = 5
 
 //LinkedListPointerOffset is the offset from beginning of entry to pointer location
-const LinkedListPointerOffset = IdLength + LinkedListPointerSize
+const LinkedListPointerOffset = IDLength + LinkedListPointerSize
 
 //IndexEntry represents an entry in the index file
 type IndexEntry struct {
@@ -129,6 +129,16 @@ func NewIndexEntry(offset int64, indexFileOffset int64, size int, id string) *In
 func (ie *IndexEntry) SetIndexFileOffset(indexFileOffset int64) {
 	log.Printf("Setting indexFileOffset of object with id %s to %d", ie.id, indexFileOffset)
 	ie.indexFileOffset = indexFileOffset
+}
+
+//GetOffset returns the offset to the start of the underlying object in the db file
+func (ie *IndexEntry) GetOffset() int64 {
+	return ie.offset
+}
+
+//GetSize returns the number of bytes the underlying object occupies in the db file
+func (ie *IndexEntry) GetSize() int {
+	return ie.size
 }
 
 //LoadTable from index file contents

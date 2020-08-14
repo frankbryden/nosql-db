@@ -211,3 +211,18 @@ func MergeRFC7396(target, patch datatypes.JS) datatypes.JS {
 	return result.(datatypes.JS)
 	//return mergeRFC7396(inPrimitiveFormTarget, inPrimitiveFormPatch).(datatypes.JS)
 }
+
+//UniqueIDs returns the input list without any duplicates
+func UniqueIDs(ids []string) []string {
+	seen := make(map[string]struct{}, len(ids))
+	j := 0
+	for _, v := range ids {
+		if _, ok := seen[v]; ok {
+			continue
+		}
+		seen[v] = struct{}{}
+		ids[j] = v
+		j++
+	}
+	return ids[:j]
+}

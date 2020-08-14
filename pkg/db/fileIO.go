@@ -52,7 +52,7 @@ func NewAccess(collectionEntry CollectionEntry) *Access {
 		state:       "ready",
 		fileHandles: fileHandles,
 		indexTable:  datatypes.LoadTable(getFileContents(fileHandles.indexFile)),
-		idGen:       NewIdGen(),
+		idGen:       NewIDGen(),
 	}
 }
 
@@ -218,6 +218,15 @@ func (db *Access) DeleteIndex(id string) {
 	db.indexTable.Remove(id)
 }
 
+//DeleteFromDBFile deletes an entry from the db file given an IndexEntry
+func (db *Access) DeleteFromDBFile(id *datatypes.IndexData) error {
+	db.fileHandles.dbFile.Seek(id.Offset, 0)
+	db.fileHandles.dbFile.Write(make([]byte, id.Size))
+	db.fileHandles.indexFile.Sync()
+
+	return nil
+}
+
 func (db *Access) writeAttributes(data datatypes.JS) {
 	log.Printf("%s, (%v)", "writeAttributes", data)
 	id := data["id"].(string)
@@ -304,7 +313,6 @@ func (db *Access) Update(id, data string) (datatypes.JS, error) {
 
 	object := objects[0]
 
-	log.Printf("Updating object %v", object)
 	patchObj := util.GetJSON(data)
 	updated := util.MergeRFC7396(object, patchObj)
 	updatedStr, _ := json.MarshalIndent(updated, "", "\t")
@@ -320,9 +328,16 @@ func (db *Access) Update(id, data string) (datatypes.JS, error) {
 	//   - DO NOT write a new entry to the index file; instead, update the entry with the ID of the old object
 	//UPDATE 2: Do not delete. Deleting simply removes the corresponding index entry - leaving the db file unchanged.
 	//The second step of the update is overwriting the said index entry, meaning it must not be deleted.
+	//UPDATE 3: Ok we need to delete from db file. The issue is querying by attributes other than ID ignore the IndexFile,
+	//meaning the info that the object has been deleted is lost.
+	indexData, err := db.indexTable.Get(id)
+	if err != nil {
+		return nil, err
+	}
+	db.DeleteFromDBFile(&indexData)
 
 	//Write
-	_, err := db.Write(string(updatedRawBytes))
+	_, err = db.Write(string(updatedRawBytes))
 	if err != nil {
 		return patchObj, err
 	}
@@ -345,6 +360,12 @@ func (db *Access) Delete(data string) (datatypes.JS, error) {
 	}
 
 	for _, item := range toDelete {
+		objectID := item["id"].(string)
+		id, err := db.indexTable.Get(objectID)
+		if err != nil {
+			return nil, err
+		}
+		db.DeleteFromDBFile(&id)
 		db.DeleteIndex(item["id"].(string))
 	}
 
@@ -408,7 +429,11 @@ func (db *Access) getFilteredData(query datatypes.JS) []datatypes.JS {
 	//After the above inner-join, every single object in objectIDsWithFilterAttr (well, the objects
 	//referred to by the IDs) has every single attribute contained in the query
 
-	return db.applyFilter(objectIDsWithFilterAttr, query)
+	//filter out duplicates (necassry, atm anyways, as we do not remove entries from the attributes file, meaning
+	//reading by attribute will return duplicates if objects have been deleted/updated)
+	uniqueObjectIDs := util.UniqueIDs(objectIDsWithFilterAttr)
+
+	return db.applyFilter(uniqueObjectIDs, query)
 }
 
 //applyFilter gets objects from db based on `ids`, and only keeps objects whose attributes/values match
@@ -524,7 +549,7 @@ func (db *Access) findAttributeOffset(attribute string) (int64, string) {
 
 					/*
 						Two reads looks better, but slower. One read, then split in memory. Faster.
-							id := make([]byte, datatypes.IdLength)
+							id := make([]byte, datatypes.IDLength)
 							pointer := make([]byte, datatypes.LinkedListPointerSize)
 					*/
 
@@ -537,20 +562,15 @@ func (db *Access) findAttributeOffset(attribute string) (int64, string) {
 					//call chain can be reduced by a full cycle by avoiding this
 					if offset > 0 {
 						return offset, id
-					} else {
-						return filePos + 2, "" //filePos + datatypes.IdLength + datatypes.LinkedListPointerSize + 2, ""
 					}
+					return filePos + 2, ""
 				}
 				attrIndex++
 			} else {
-				/*log.Println("Following 2 not equal")
-				log.Println(data[i])
-				log.Println(attrRaw[attrIndex])*/
 				attrIndex = 0
 			}
 			filePos++
 		}
-		//return -1, ""
 		if n < chunkSize {
 			return -1, ""
 		}
@@ -561,7 +581,7 @@ func (db *Access) findAttributeOffset(attribute string) (int64, string) {
 //Takes an offset, and returns an id and offset to next item
 func (db *Access) readSingleAttrItem(offset int64) (int64, string) {
 	//The +1 comes from the middle separator (':')
-	data := make([]byte, datatypes.IdLength+datatypes.LinkedListPointerSize+1)
+	data := make([]byte, datatypes.IDLength+datatypes.LinkedListPointerSize+1)
 
 	//skip first separator
 	db.fileHandles.attributesFile.ReadAt(data, offset)
@@ -590,9 +610,8 @@ func (db *Access) getAllIdsFromAttributeName(attrName string) []string {
 	//going on in the code
 	if id == "" {
 		return ids
-	} else {
-		return append(ids, id)
 	}
+	return append(ids, id)
 }
 
 //Inner function: exposed by two functions below.
@@ -633,9 +652,4 @@ func (db *Access) readDbData(indexData *datatypes.IndexData) string {
 	data := make([]byte, indexData.Size)
 	db.fileHandles.dbFile.ReadAt(data, int64(indexData.Offset))
 	return string(data)
-}
-
-//TODO return a bool with success
-func (db *Access) deleteSingleItemFromId(id string) {
-
 }

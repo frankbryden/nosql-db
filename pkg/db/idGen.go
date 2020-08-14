@@ -8,16 +8,19 @@ import (
 	"time"
 )
 
+//IdGen is responsible for generating unique IDs
 type IdGen struct {
 	h hash.Hash
 }
 
-func NewIdGen() *IdGen {
+//NewIDGen constructs a fresh IdGen instance
+func NewIDGen() *IdGen {
 	return &IdGen{
 		h: md5.New(),
 	}
 }
 
+//GetID constructs an ID
 func (ig *IdGen) GetID(data string) string {
 	ig.h.Reset()
 	io.WriteString(ig.h, data)
