@@ -109,6 +109,7 @@ func IsJSONObj(k string, data map[string]interface{}) bool {
 //GetJSON object from string
 func GetJSON(data string) datatypes.JS {
 	var dat map[string]interface{}
+	log.Print(data)
 	if err := json.Unmarshal([]byte(data), &dat); err != nil {
 		//TODO handle this more graciously. Namely, check if it is a
 		//JSON formatting issue, and return error to user.
