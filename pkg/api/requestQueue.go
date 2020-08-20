@@ -5,10 +5,12 @@ import (
 	"net/http"
 )
 
+//SyncServer is responsible of merging requests from multiple goroutines into a single-threaded queue
 type SyncServer struct {
 	requests chan RequestData
 }
 
+//RequestData will be pased to the single-threaded request handler by the SyncServer
 type RequestData struct {
 	r    *http.Request
 	resp http.ResponseWriter
@@ -23,7 +25,5 @@ func (s *SyncServer) ServeHTTP(resp http.ResponseWriter, r *http.Request) {
 		resp: resp,
 		done: done,
 	}
-	log.Print("Waiting for channel to be cleared")
 	<-done
-	log.Print("Done")
 }

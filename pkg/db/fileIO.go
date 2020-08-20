@@ -136,7 +136,6 @@ func (db *Access) Write(data string) (string, error) {
 	}
 
 	flattened := util.FlattenJSON(dat)
-	log.Println(flattened)
 
 	jsonData, err := json.Marshal(dat)
 
@@ -156,12 +155,16 @@ func (db *Access) Write(data string) (string, error) {
 	if !freshObject {
 		indexData, err := db.indexTable.Get(entryID)
 		if err != nil {
-			return "", err
+			//this means it is an id defined by the user. Write this document as if it were new i.e. at the end of
+			//the db file
+		} else {
+			indexFileOffset = indexData.IndexFileOffset
 		}
-		indexFileOffset = indexData.IndexFileOffset
 	}
 	//Store information about entry. Will write this to the index file
 	indexEntry := datatypes.NewIndexEntry(int64(db.getDbFilePos()-n), indexFileOffset, n, entryID)
+
+	log.Printf("Writing indexentry %v", indexEntry)
 
 	//Write to index file
 	db.WriteIndex(indexEntry)
