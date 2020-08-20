@@ -30,6 +30,6 @@ func (ig *IdGen) GetID(data string) string {
 	strTimestamp := fmt.Sprintf("%d", timestamp)
 	strHash := fmt.Sprintf("%x", dataHash)
 
-	id := strHash[:8] + strTimestamp[len(strTimestamp)-6:]
+	id := strHash[:7] + strTimestamp[len(strTimestamp)-6:]
 	return id
 }

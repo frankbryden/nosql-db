@@ -20,7 +20,7 @@ const AttributeFileExtension = ".attr"
 const IndexEntrySize = 30
 
 //IDLength is the size in bytes of a single ID in index/attr files
-const IDLength = 14
+const IDLength = 13
 
 //LinkedListPointerSize is the size in bytes of a single pointer (offset) in the attr file
 const LinkedListPointerSize = 5
