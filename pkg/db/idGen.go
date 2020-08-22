@@ -2,6 +2,7 @@ package db
 
 import (
 	"crypto/md5"
+	"encoding/hex"
 	"fmt"
 	"hash"
 	"io"
@@ -23,13 +24,26 @@ func NewIDGen() *IdGen {
 //GetID constructs an ID
 func (ig *IdGen) GetID(data string) string {
 	ig.h.Reset()
-	io.WriteString(ig.h, data)
-	dataHash := ig.h.Sum(nil)
-	timestamp := time.Now().UnixNano() / 100
+	//Compute an ID from the data and the timestamp
 
+	//Write data
+	io.WriteString(ig.h, data)
+
+	//Write timestamp
+	timestamp := time.Now().UnixNano() / 100
 	strTimestamp := fmt.Sprintf("%d", timestamp)
+	io.WriteString(ig.h, strTimestamp)
+
+	//Get hash
+	dataHash := ig.h.Sum(nil)
 	strHash := fmt.Sprintf("%x", dataHash)
 
-	id := strHash[:7] + strTimestamp[len(strTimestamp)-6:]
-	return id
+	return strHash
+}
+
+//GetHash computes the md5 hash of the input string
+func (ig *IdGen) GetHash(data string) string {
+	algorithm := md5.New()
+	algorithm.Write([]byte(data))
+	return hex.EncodeToString(algorithm.Sum(nil))
 }

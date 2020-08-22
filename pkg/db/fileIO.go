@@ -134,14 +134,20 @@ func (db *Access) Write(data string) (string, error) {
 	} else {
 		entryID = dat["id"].(string)
 	}
+	_id := db.idGen.GetHash(entryID)
+	dat["_id"] = _id
+
+	log.Printf("_id = %s", dat["_id"])
 
 	flattened := util.FlattenJSON(dat)
+
+	delete(dat, "_id")
 
 	jsonData, err := json.Marshal(dat)
 
 	if err != nil {
 		log.Fatal(err)
-		return "", err
+		return "Invalid JSON object", err
 	}
 
 	log.Println("Writing at offset " + strconv.Itoa(db.getDbFilePos()))
@@ -162,7 +168,7 @@ func (db *Access) Write(data string) (string, error) {
 		}
 	}
 	//Store information about entry. Will write this to the index file
-	indexEntry := datatypes.NewIndexEntry(int64(db.getDbFilePos()-n), indexFileOffset, n, entryID)
+	indexEntry := datatypes.NewIndexEntry(int64(db.getDbFilePos()-n), indexFileOffset, n, _id)
 
 	log.Printf("Writing indexentry %v", indexEntry)
 
@@ -232,12 +238,13 @@ func (db *Access) DeleteFromDBFile(id *datatypes.IndexData) error {
 
 func (db *Access) writeAttributes(data datatypes.JS) {
 	log.Printf("%s, (%v)", "writeAttributes", data)
-	id := data["id"].(string)
+	_id := data["_id"].(string)
 	delete(data, "id")
+	delete(data, "_id")
 	//get offset of start of attribute chain (if exists)
 	for k := range data {
 		log.Println("writing key " + k)
-		db.writeAttribute("/"+k, id)
+		db.writeAttribute("/"+k, _id)
 	}
 }
 
@@ -377,8 +384,10 @@ func (db *Access) Delete(data string) (datatypes.JS, error) {
 func (db *Access) retrieveFromQuery(query datatypes.JS) ([]datatypes.JS, error) {
 	if id, ok := query["id"]; ok {
 		if idStr, ok := id.(string); ok {
-			log.Println("query for id " + idStr)
-			jsObj, err := db.getSingleObjectFromID(idStr)
+			//Obtain internal _id from "user-space" id
+			_id := db.idGen.GetHash(idStr)
+			log.Printf("query for id %s (true id is %s)", _id, idStr)
+			jsObj, err := db.getSingleObjectFromID(_id)
 			if err != nil {
 				//obj no longer exists
 				return nil, errors.New("Object deleted")
@@ -502,7 +511,6 @@ func (db *Access) getAllObjectsFromIds(ids []string) []datatypes.JS {
 
 //getSingleObjectFromID returns JS instance from db given `id`
 func (db *Access) getSingleObjectFromID(id string) (datatypes.JS, error) {
-	log.Printf("looking up object with id = '%s'", id)
 	indexData, err := db.indexTable.Get(id)
 	if err != nil {
 		//TODO we might want to change this to a less dramatic error handler

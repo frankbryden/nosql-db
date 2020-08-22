@@ -16,11 +16,11 @@ const IndexFileExtension = ".index"
 //AttributeFileExtension is the file extension of the attribute file
 const AttributeFileExtension = ".attr"
 
-//IndexEntrySize is the size in bytes of a single entry in the index file
-const IndexEntrySize = 30
-
 //IDLength is the size in bytes of a single ID in index/attr files
-const IDLength = 13
+const IDLength = 32
+
+//IndexEntrySize is the size in bytes of a single entry in the index file
+const IndexEntrySize = IDLength + 20
 
 //LinkedListPointerSize is the size in bytes of a single pointer (offset) in the attr file
 const LinkedListPointerSize = 5
@@ -34,7 +34,7 @@ type IndexEntry struct {
 	offset          int64
 	indexFileOffset int64
 	size            int
-	id              string
+	_id             string
 }
 
 //IndexTable is an in-memory copy of the index file
@@ -61,7 +61,9 @@ type JS map[string]interface{}
 func (ie *IndexEntry) WriteableRepr() []byte {
 	var builder strings.Builder
 
-	builder.WriteString(ie.id)
+	log.Printf("Writeable repr with id: %s", ie._id)
+
+	builder.WriteString(ie._id)
 	builder.WriteString(":")
 	builder.WriteString(strconv.Itoa(int(ie.offset)))
 	builder.WriteString(":")
@@ -110,24 +112,24 @@ func FromWriteableRepr(data string, indexFileOffset int64) (*IndexEntry, error) 
 		offset:          int64(offset),
 		indexFileOffset: indexFileOffset,
 		size:            size,
-		id:              parts[0],
+		_id:             parts[0],
 	}, nil
 }
 
 //NewIndexEntry constructs an IndexEntry object from required parameters.
-func NewIndexEntry(offset int64, indexFileOffset int64, size int, id string) *IndexEntry {
+func NewIndexEntry(offset int64, indexFileOffset int64, size int, _id string) *IndexEntry {
 	return &IndexEntry{
 		offset:          offset,
 		indexFileOffset: indexFileOffset,
 		size:            size,
-		id:              id,
+		_id:             _id,
 	}
 }
 
 //SetIndexFileOffset used by function writing to index file, as IndexEntry object is
 //created before the file offset is known
 func (ie *IndexEntry) SetIndexFileOffset(indexFileOffset int64) {
-	log.Printf("Setting indexFileOffset of object with id %s to %d", ie.id, indexFileOffset)
+	log.Printf("Setting indexFileOffset of object with id %s to %d", ie._id, indexFileOffset)
 	ie.indexFileOffset = indexFileOffset
 }
 
@@ -155,7 +157,7 @@ func LoadTable(data string) *IndexTable {
 			continue
 		}
 		//Insert into map
-		table[ie.id] = ie.GetIndexData()
+		table[ie._id] = ie.GetIndexData()
 	}
 	return &IndexTable{
 		table: table,
@@ -164,7 +166,7 @@ func LoadTable(data string) *IndexTable {
 
 //Insert entry into index table
 func (it *IndexTable) Insert(ie *IndexEntry) {
-	it.table[ie.id] = ie.GetIndexData()
+	it.table[ie._id] = ie.GetIndexData()
 }
 
 //Remove entry from index table
@@ -173,15 +175,15 @@ func (it *IndexTable) Remove(id string) {
 }
 
 //Get returns an object with `id` representing an item in the index file
-func (it *IndexTable) Get(id string) (IndexData, error) {
-	indexData, found := it.table[id] //db.getOffsetFromId(idStr)
+func (it *IndexTable) Get(_id string) (IndexData, error) {
+	indexData, found := it.table[_id] //db.getOffsetFromId(idStr)
 
-	log.Printf("Get with id = %s, found = %t\nFull data: %v", id, found, it.table)
+	log.Printf("Get with id = %s, found = %t\nFull data: %v", _id, found, it.table)
 
 	if found {
 		return indexData, nil
 	} else {
-		return indexData, errors.New(id + " not found")
+		return indexData, errors.New(_id + " not found")
 	}
 }
 

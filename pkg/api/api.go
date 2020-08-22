@@ -151,7 +151,6 @@ func (s *Server) ReadReq(collectionName string, resp http.ResponseWriter, r *htt
 		if len(objects) == 0 {
 			resp.Write([]byte("{}"))
 		} else if jsonBody, jsonErr := json.Marshal(objects); jsonErr == nil {
-			log.Println(objects)
 			resp.Write(jsonBody)
 		} else {
 			errMsg = err.Error()
