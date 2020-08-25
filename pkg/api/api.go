@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"nosql-db/pkg/datatypes"
 	"nosql-db/pkg/db"
 	"nosql-db/pkg/util"
 	"strings"
@@ -134,7 +135,13 @@ func (s *Server) WriteReq(collectionName string, resp http.ResponseWriter, r *ht
 func (s *Server) ReadReq(collectionName string, resp http.ResponseWriter, r *http.Request) {
 	bodyStr := getBodyStr(resp, r)
 
-	objects, err := s.collectionsMapping[collectionName].Db.Read(bodyStr)
+	var err error
+	var objects []datatypes.JS
+	if collection, ok := s.collectionsMapping[collectionName]; ok {
+		objects, err = collection.Db.Read(bodyStr)
+	} else {
+		err = errors.New("no collection named '" + collectionName + "'")
+	}
 
 	errMsg := ""
 
@@ -208,7 +215,13 @@ func (s *Server) UpdateReq(collectionName, id string, resp http.ResponseWriter, 
 	} else {
 		bodyStr := getBodyStr(resp, r)
 
-		result, err := s.collectionsMapping[collectionName].Db.Update(id, bodyStr)
+		var err error
+		var result datatypes.JS
+		if collection, ok := s.collectionsMapping[collectionName]; ok {
+			result, err = collection.Db.Update(id, bodyStr)
+		} else {
+			err = errors.New("no collection named '" + collectionName + "'")
+		}
 
 		if err == nil {
 			/*rawBody, err := json.RawMessage(objects).MarshalJSON()
