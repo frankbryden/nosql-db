@@ -597,6 +597,11 @@ func (db *Access) readSingleAttrItem(offset int64) (int64, string) {
 	//split along separator
 	parts := strings.Split(string(data), ":")
 
+	//empty file or non-existent data
+	if len(parts) < 2 {
+		return -1, ""
+	}
+
 	//extract data
 	id := parts[0]
 	pointer, err := strconv.Atoi(strings.Trim(parts[1], "\x00"))
