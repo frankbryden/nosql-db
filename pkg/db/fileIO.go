@@ -390,7 +390,7 @@ func (db *Access) retrieveFromQuery(query datatypes.JS) ([]datatypes.JS, error) 
 			jsObj, err := db.getSingleObjectFromID(_id)
 			if err != nil {
 				//obj no longer exists
-				return nil, errors.New("Object deleted")
+				return nil, errors.New("Object does not exist")
 			}
 			object := jsObj
 			return []datatypes.JS{object}, nil
