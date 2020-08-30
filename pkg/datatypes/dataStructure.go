@@ -178,8 +178,6 @@ func (it *IndexTable) Remove(id string) {
 func (it *IndexTable) Get(_id string) (IndexData, error) {
 	indexData, found := it.table[_id] //db.getOffsetFromId(idStr)
 
-	log.Printf("Get with id = %s, found = %t\nFull data: %v", _id, found, it.table)
-
 	if found {
 		return indexData, nil
 	} else {

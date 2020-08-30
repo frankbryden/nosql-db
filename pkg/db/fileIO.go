@@ -495,7 +495,6 @@ func (db *Access) getAllObjects() []datatypes.JS {
 }
 
 func (db *Access) getAllObjectsFromIds(ids []string) []datatypes.JS {
-	log.Println(ids)
 	log.Printf("(len = %d)", len(ids)) //len = 2 here
 	objects := make([]datatypes.JS, len(ids))
 	for i, id := range ids {
@@ -520,7 +519,6 @@ func (db *Access) getSingleObjectFromID(id string) (datatypes.JS, error) {
 		//UPDATE: okkk deletion implemented, time to fix this.
 		return nil, errors.New("Object deleted or non-existent")
 	}
-	log.Println("Found matching id at offset " + strconv.Itoa(int(indexData.Offset)))
 	dbData := db.readDbData(&indexData)
 	return util.GetJSON(dbData), nil
 }
