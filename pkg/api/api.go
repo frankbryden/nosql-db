@@ -35,7 +35,7 @@ func NewServer() *Server {
 func (s *Server) Start() {
 	http.Handle("/", &s.requestHandler)
 	go s.ProcessRequestQueue()
-	log.Fatal(http.ListenAndServe("127.0.0.1:9999", nil))
+	log.Fatal(http.ListenAndServe(":9999", nil))
 }
 
 //Stop the server
