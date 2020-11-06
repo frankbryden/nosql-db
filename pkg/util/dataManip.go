@@ -62,11 +62,11 @@ func InnerJoin(data [][]string) []string {
 //     "brother.age": 55,
 //     "brother.bike": "VTT"
 // }
-func FlattenJSON(data map[string]interface{}) map[string]interface{} {
+func FlattenJSON(data datatypes.JS) datatypes.JS {
 	result := make(map[string]interface{})
 	for k, v := range data {
-		if IsJSONObj(k, data) {
-			flattened := flattenRec(k, v.(map[string]interface{}))
+		if IsObj(data[k]) {
+			flattened := flattenRec(k, v.(datatypes.JS))
 			for kP, vP := range flattened {
 				result[kP] = vP
 			}
@@ -81,12 +81,12 @@ func FlattenJSON(data map[string]interface{}) map[string]interface{} {
 
 //flattenRec loops through items in data, adding to a root map, and prepending `key`
 //to each entry name
-func flattenRec(key string, data map[string]interface{}) map[string]interface{} {
+func flattenRec(key string, data datatypes.JS) map[string]interface{} {
 	flattened := make(map[string]interface{})
 	//finished := true
 	for k, v := range data {
 		prefix := key + "." + k
-		if IsJSONObj(k, data) {
+		if IsObj(data[k]) {
 			for kP, vP := range flattenRec(prefix, v.(map[string]interface{})) {
 				flattened[kP] = vP
 			}
@@ -140,6 +140,7 @@ func convertToJSON(data interface{}) interface{} {
 	return jsObj
 }
 
+//IsObj tests the type of the given object to see if it is a JS object
 func IsObj(data interface{}) bool {
 	_, ok := data.(datatypes.JS)
 	return ok

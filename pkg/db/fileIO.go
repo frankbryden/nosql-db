@@ -140,6 +140,7 @@ func (db *Access) Write(data string) (string, error) {
 	log.Printf("_id = %s", dat["_id"])
 
 	flattened := util.FlattenJSON(dat)
+	log.Printf("%#v", flattened)
 
 	delete(dat, "_id")
 
@@ -448,11 +449,8 @@ func (db *Access) getFilteredData(query datatypes.JS) []datatypes.JS {
 //applyFilter gets objects from db based on `ids`, and only keeps objects whose attributes/values match
 //those in `filter`
 func (db *Access) applyFilter(ids []string, filter datatypes.JS) []datatypes.JS {
-	log.Printf("%s, (%v, %v)", "applyFilter", ids, filter)
 	//Every item in objects will have at least all the attributes in filter
 	objects := db.getAllObjectsFromIds(ids)
-
-	log.Println(objects)
 
 	//TODO may need to rethink this, based on performance cost.
 	//repeatedly appending is heavily inefficient in the worst-case scenario (filter selects all elements)
@@ -482,7 +480,6 @@ func (db *Access) applyFilter(ids []string, filter datatypes.JS) []datatypes.JS 
 		}
 		if match {
 			filteredObjects = append(filteredObjects, obj)
-			log.Println("MATCH!")
 		}
 
 	}

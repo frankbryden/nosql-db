@@ -314,3 +314,8 @@ func (s *Server) ServeRequests(resp http.ResponseWriter, r *http.Request) {
 		log.Printf("'%s' did not match any path", split[0])
 	}
 }
+
+//MapCollection maps a collectionName to a collection object
+func (s *Server) MapCollection(collectionName string) db.Collection {
+	return s.collectionsMapping[collectionName]
+}
