@@ -6,6 +6,7 @@ import (
 	"nosql-db/pkg/util"
 	"reflect"
 	"testing"
+	"time"
 )
 
 func TestInnerJoin(t *testing.T) {
@@ -46,5 +47,20 @@ func TestJSONMerge(t *testing.T) {
 		expectedStr, _ := json.MarshalIndent(expected, "", "\t")
 		outStr, _ := json.MarshalIndent(out, "", "\t")
 		t.Errorf("Expected\n%s, got\n%s", expectedStr, outStr)
+	}
+}
+
+func TestWorkerRun(t *testing.T) {
+	a := 0
+	worker := util.NewWorker(func() {
+		log.Printf("Hello!")
+		a++
+	}, 2*time.Second)
+	worker.Start()
+	<-time.After(11 * time.Second)
+	worker.Stop()
+
+	if a != 17 {
+		t.Errorf("A should be 2 after 2 iterations, instead we have a = %d", a)
 	}
 }
